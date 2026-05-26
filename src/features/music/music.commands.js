@@ -31,16 +31,69 @@ function isMusicCommand(command) {
   ].includes(command);
 }
 
+/*
+  محاولة استخراج رابط الأغنية من نتيجة buildMusicReply
+  لأن بعض الأكواد ترجع الرابط داخل result.publicUrl
+  وبعضها داخل result.meta.publicUrl أو result.meta.audioUrl
+*/
+function getSongUrlFromResult(result) {
+  if (!result) return "";
+
+  return (
+    result.publicUrl ||
+    result.audioUrl ||
+    result.url ||
+    result.songUrl ||
+    (result.meta && result.meta.publicUrl) ||
+    (result.meta && result.meta.audioUrl) ||
+    (result.meta && result.meta.url) ||
+    (result.meta && result.meta.songUrl) ||
+    ""
+  );
+}
+
+/*
+  رسالة التفاصيل فقط بدون رابط الأغنية
+*/
+function formatSongDetails(song) {
+  return [
+    "🎵 تم تجهيز الأغنية",
+    "",
+    `🎧 الاسم: ${song.songName}`,
+    `🆔 ID: ${song.id}`,
+    `👤 بواسطة: ${song.requestedBy}`,
+    `🏠 الغرفة: ${song.roomName}`,
+    "",
+    `❤️ للإعجاب: like@${song.id}`,
+  ].join("\n");
+}
+
+/*
+  هذه للأوامر المختصرة مثل .so / .sh / .ps
+*/
 function formatSongBroadcast(song) {
   return [
     "🎵 Song request",
+    "",
+    `Song: ${song.songName}`,
     `ID: ${song.id}`,
     `By: ${song.requestedBy}`,
     `Room: ${song.roomName}`,
-    `Song: ${song.songName}`,
     "",
     `Like: like@${song.id}`,
   ].join("\n");
+}
+
+function sendMusicMessage({ socket, runtime, text }) {
+  if (!text) return false;
+
+  if (runtime && typeof runtime.broadcastMusicMessage === "function") {
+    runtime.broadcastMusicMessage(text);
+    return true;
+  }
+
+  socket.sendRoomMessage(text);
+  return true;
 }
 
 async function handlePlaySong(context) {
@@ -60,29 +113,50 @@ async function handlePlaySong(context) {
     roomName: bot.roomName,
   });
 
-  if (!result.handled) {
+  if (!result || !result.handled) {
+    socket.sendRoomMessage("لم أستطع تجهيز الأغنية.");
     return;
   }
 
   const senderName = getSenderName(sender);
 
+  const songTitle =
+    (result.meta && result.meta.youtubeTitle) ||
+    (result.meta && result.meta.title) ||
+    result.title ||
+    songName;
+
+  const songUrl = getSongUrlFromResult(result);
+
   const song = songLikesRepository.createSong({
-    songName: (result.meta && result.meta.youtubeTitle) || songName,
+    songName: songTitle,
     roomName: bot.roomName,
     requestedBy: senderName,
+    url: songUrl,
   });
 
-  const finalText = [
-    result.text,
-    "",
-    `ID: ${song.id}`,
-    `Like: like@${song.id}`,
-  ].join("\n");
+  /*
+    الرسالة الأولى: التفاصيل فقط
+  */
+  const detailsText = formatSongDetails(song);
 
-  if (runtime && typeof runtime.broadcastMusicMessage === "function") {
-    runtime.broadcastMusicMessage(finalText);
+  sendMusicMessage({
+    socket,
+    runtime,
+    text: detailsText,
+  });
+
+  /*
+    الرسالة الثانية: رابط الأغنية وحده في رسالة منفصلة
+  */
+  if (songUrl) {
+    sendMusicMessage({
+      socket,
+      runtime,
+      text: songUrl,
+    });
   } else {
-    socket.sendRoomMessage(finalText);
+    socket.sendRoomMessage("تم تجهيز الأغنية لكن لم أجد رابط الصوت.");
   }
 }
 
@@ -96,15 +170,16 @@ function handleSongShortcut(context) {
     songName: fakeSongName,
     roomName: bot.roomName,
     requestedBy: senderName,
+    url: "",
   });
 
   const message = formatSongBroadcast(song);
 
-  if (runtime && typeof runtime.broadcastMusicMessage === "function") {
-    runtime.broadcastMusicMessage(message);
-  } else {
-    socket.sendRoomMessage(message);
-  }
+  sendMusicMessage({
+    socket,
+    runtime,
+    text: message,
+  });
 }
 
 function handleLikeSong(context) {
@@ -147,7 +222,7 @@ function handleSongLikes(context) {
   }
 
   const lines = top.map((song, index) => {
-    return `${index + 1}. ${song.songName} | ${song.likesCount || 0} likes`;
+    return `${index + 1}. ${song.songName} | ID: ${song.id} | ${song.likesCount || 0} likes`;
   });
 
   socket.sendRoomMessage(["Top songs:", ...lines].join("\n"));

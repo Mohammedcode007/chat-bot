@@ -10,6 +10,34 @@ const songLikesStore = new JsonStore(
   }
 );
 
+function generateShortSongId() {
+  /*
+    6 حروف وأرقام فقط
+    مثال:
+    A7K9Q2
+    b4m8xz
+  */
+  return Math.random().toString(36).slice(2, 8);
+}
+
+function generateUniqueSongId(existingSongs) {
+  let id = generateShortSongId();
+  let attempts = 0;
+
+  while (existingSongs[id] && attempts < 20) {
+    id = generateShortSongId();
+    attempts++;
+  }
+
+  if (existingSongs[id]) {
+    id = `${Date.now().toString(36).slice(-3)}${Math.random()
+      .toString(36)
+      .slice(2, 5)}`;
+  }
+
+  return String(id).slice(0, 6);
+}
+
 class SongLikesRepository {
   getAll() {
     const data = songLikesStore.read();
@@ -24,16 +52,17 @@ class SongLikesRepository {
     return songLikesStore.write(data);
   }
 
-  createSong({ songName, roomName, requestedBy }) {
+  createSong({ songName, roomName, requestedBy, url }) {
     const data = this.getAll();
 
-    const id = `song_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const id = generateUniqueSongId(data.songs);
 
     data.songs[id] = {
       id,
       songName,
       roomName,
       requestedBy,
+      url: url || "",
       createdAt: new Date().toISOString(),
       likesCount: 0,
     };
@@ -48,7 +77,8 @@ class SongLikesRepository {
   likeSong(songId, username) {
     const data = this.getAll();
 
-    const song = data.songs[songId];
+    const cleanSongId = String(songId || "").trim();
+    const song = data.songs[cleanSongId];
 
     if (!song) {
       return {
@@ -57,11 +87,11 @@ class SongLikesRepository {
       };
     }
 
-    if (!Array.isArray(data.likes[songId])) {
-      data.likes[songId] = [];
+    if (!Array.isArray(data.likes[cleanSongId])) {
+      data.likes[cleanSongId] = [];
     }
 
-    const exists = data.likes[songId].some(
+    const exists = data.likes[cleanSongId].some(
       (item) => normalizeUsername(item.username) === normalizeUsername(username)
     );
 
@@ -73,12 +103,12 @@ class SongLikesRepository {
       };
     }
 
-    data.likes[songId].push({
+    data.likes[cleanSongId].push({
       username,
       likedAt: new Date().toISOString(),
     });
 
-    song.likesCount = data.likes[songId].length;
+    song.likesCount = data.likes[cleanSongId].length;
 
     this.saveAll(data);
 

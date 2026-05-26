@@ -245,6 +245,10 @@ if (lowerRaw.startsWith("like@")) {
 
   if (!songId) return null;
 
+  if (!/^[a-z0-9]{1,6}$/i.test(songId)) {
+    return null;
+  }
+
   return {
     raw,
     command: "like_song",
