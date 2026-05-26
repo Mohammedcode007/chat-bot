@@ -1,6 +1,25 @@
 const { SongLikesRepository } = require("../../store/SongLikesRepository");
 const { buildMusicReply } = require("./musicReply.service");
 
+const songLikesRepository = new SongLikesRepository();
+
+function getSenderName(sender) {
+  if (!sender) return "unknown";
+
+  if (typeof sender === "string") {
+    return sender;
+  }
+
+  return (
+    sender.username ||
+    sender.name ||
+    sender.userName ||
+    sender.from ||
+    sender.id ||
+    "unknown"
+  );
+}
+
 function isMusicCommand(command) {
   return [
     "play_song",
@@ -45,12 +64,12 @@ async function handlePlaySong(context) {
     return;
   }
 
+  const senderName = getSenderName(sender);
+
   const song = songLikesRepository.createSong({
-    songName:
-      (result.meta && result.meta.youtubeTitle) ||
-      songName,
+    songName: (result.meta && result.meta.youtubeTitle) || songName,
     roomName: bot.roomName,
-    requestedBy: sender,
+    requestedBy: senderName,
   });
 
   const finalText = [
@@ -71,11 +90,12 @@ function handleSongShortcut(context) {
   const { bot, sender, socket, parsed, runtime } = context;
 
   const fakeSongName = parsed.args.join(" ").trim() || "بدون اسم";
+  const senderName = getSenderName(sender);
 
   const song = songLikesRepository.createSong({
     songName: fakeSongName,
     roomName: bot.roomName,
-    requestedBy: sender,
+    requestedBy: senderName,
   });
 
   const message = formatSongBroadcast(song);
@@ -97,7 +117,9 @@ function handleLikeSong(context) {
     return;
   }
 
-  const result = songLikesRepository.likeSong(songId, sender);
+  const senderName = getSenderName(sender);
+
+  const result = songLikesRepository.likeSong(songId, senderName);
 
   if (!result.ok && result.reason === "not_found") {
     socket.sendRoomMessage("Song not found.");
