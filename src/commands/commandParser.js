@@ -256,7 +256,35 @@ if (lowerRaw.startsWith("like@")) {
     hasPrefix: false,
   };
 }
+if (lowerRaw.startsWith("com@")) {
+  const rest = raw.slice(4).trim();
 
+  if (!rest) return null;
+
+  const firstAtIndex = rest.indexOf("@");
+
+  if (firstAtIndex === -1) {
+    return null;
+  }
+
+  const songId = rest.slice(0, firstAtIndex).trim();
+  const comment = rest.slice(firstAtIndex + 1).trim();
+
+  if (!songId || !comment) {
+    return null;
+  }
+
+  if (!/^[a-z0-9]{1,6}$/i.test(songId)) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "comment_song",
+    args: [songId, comment],
+    hasPrefix: false,
+  };
+}
 if (lowerRaw === ".likes") {
   return {
     raw,

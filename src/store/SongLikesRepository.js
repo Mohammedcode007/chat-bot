@@ -7,16 +7,11 @@ const songLikesStore = new JsonStore(
   {
     songs: {},
     likes: {},
+    comments: {},
   }
 );
 
 function generateShortSongId() {
-  /*
-    6 حروف وأرقام فقط
-    مثال:
-    A7K9Q2
-    b4m8xz
-  */
   return Math.random().toString(36).slice(2, 8);
 }
 
@@ -44,6 +39,7 @@ class SongLikesRepository {
 
     if (!data.songs) data.songs = {};
     if (!data.likes) data.likes = {};
+    if (!data.comments) data.comments = {};
 
     return data;
   }
@@ -65,9 +61,11 @@ class SongLikesRepository {
       url: url || "",
       createdAt: new Date().toISOString(),
       likesCount: 0,
+      commentsCount: 0,
     };
 
     data.likes[id] = [];
+    data.comments[id] = [];
 
     this.saveAll(data);
 
@@ -115,6 +113,52 @@ class SongLikesRepository {
     return {
       ok: true,
       song,
+    };
+  }
+
+  commentSong(songId, username, comment) {
+    const data = this.getAll();
+
+    const cleanSongId = String(songId || "").trim();
+    const cleanComment = String(comment || "").trim();
+
+    const song = data.songs[cleanSongId];
+
+    if (!song) {
+      return {
+        ok: false,
+        reason: "not_found",
+      };
+    }
+
+    if (!cleanComment) {
+      return {
+        ok: false,
+        reason: "empty_comment",
+        song,
+      };
+    }
+
+    if (!Array.isArray(data.comments[cleanSongId])) {
+      data.comments[cleanSongId] = [];
+    }
+
+    const commentItem = {
+      username,
+      comment: cleanComment,
+      commentedAt: new Date().toISOString(),
+    };
+
+    data.comments[cleanSongId].push(commentItem);
+
+    song.commentsCount = data.comments[cleanSongId].length;
+
+    this.saveAll(data);
+
+    return {
+      ok: true,
+      song,
+      comment: commentItem,
     };
   }
 

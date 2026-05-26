@@ -20,6 +20,16 @@ function getSenderName(sender) {
   );
 }
 
+function normalizeName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isSameUser(a, b) {
+  return normalizeName(a) === normalizeName(b);
+}
+
 function isMusicCommand(command) {
   return [
     "play_song",
@@ -27,33 +37,57 @@ function isMusicCommand(command) {
     "song_here",
     "song_private",
     "like_song",
+    "comment_song",
     "song_likes",
   ].includes(command);
 }
 
 /*
-  محاولة استخراج رابط الأغنية من نتيجة buildMusicReply
-  لأن بعض الأكواد ترجع الرابط داخل result.publicUrl
-  وبعضها داخل result.meta.publicUrl أو result.meta.audioUrl
+  استخراج رابط الأغنية من buildMusicReply
+  مهم: musicReply.service عندك يرجع الرابط داخل meta.mp3Url
 */
 function getSongUrlFromResult(result) {
   if (!result) return "";
 
-  return (
+  const directUrl =
     result.publicUrl ||
     result.audioUrl ||
+    result.mp3Url ||
     result.url ||
     result.songUrl ||
-    (result.meta && result.meta.publicUrl) ||
-    (result.meta && result.meta.audioUrl) ||
-    (result.meta && result.meta.url) ||
-    (result.meta && result.meta.songUrl) ||
-    ""
-  );
+    "";
+
+  if (directUrl) return String(directUrl).trim();
+
+  const meta = result.meta || {};
+
+  const metaUrl =
+    meta.publicUrl ||
+    meta.audioUrl ||
+    meta.mp3Url ||
+    meta.url ||
+    meta.songUrl ||
+    "";
+
+  if (metaUrl) return String(metaUrl).trim();
+
+  try {
+    const fullText = JSON.stringify(result);
+
+    const match = fullText.match(
+      /https?:\/\/[^\s"'\\]+\/uploads\/audio-temp\/[^\s"'\\]+\.mp3/i
+    );
+
+    if (match && match[0]) {
+      return match[0].trim();
+    }
+  } catch {}
+
+  return "";
 }
 
 /*
-  رسالة التفاصيل فقط بدون رابط الأغنية
+  رسالة التفاصيل فقط بدون الرابط
 */
 function formatSongDetails(song) {
   return [
@@ -65,12 +99,10 @@ function formatSongDetails(song) {
     `🏠 الغرفة: ${song.roomName}`,
     "",
     `❤️ للإعجاب: like@${song.id}`,
+    `💬 للتعليق: com@${song.id}@تعليقك`,
   ].join("\n");
 }
 
-/*
-  هذه للأوامر المختصرة مثل .so / .sh / .ps
-*/
 function formatSongBroadcast(song) {
   return [
     "🎵 Song request",
@@ -81,6 +113,7 @@ function formatSongBroadcast(song) {
     `Room: ${song.roomName}`,
     "",
     `Like: like@${song.id}`,
+    `Comment: com@${song.id}@your comment`,
   ].join("\n");
 }
 
@@ -94,6 +127,20 @@ function sendMusicMessage({ socket, runtime, text }) {
 
   socket.sendRoomMessage(text);
   return true;
+}
+
+function sendPrivateSafe(socket, to, text) {
+  if (!socket || typeof socket.sendPrivate !== "function") {
+    console.log("⚠️ sendPrivate not available on socket");
+    return false;
+  }
+
+  if (!to) {
+    console.log("⚠️ sendPrivate ignored: missing target");
+    return false;
+  }
+
+  return socket.sendPrivate(to, text);
 }
 
 async function handlePlaySong(context) {
@@ -118,6 +165,11 @@ async function handlePlaySong(context) {
     return;
   }
 
+  if (result.success === false) {
+    socket.sendRoomMessage(result.text || "فشل تجهيز الأغنية.");
+    return;
+  }
+
   const senderName = getSenderName(sender);
 
   const songTitle =
@@ -136,7 +188,7 @@ async function handlePlaySong(context) {
   });
 
   /*
-    الرسالة الأولى: التفاصيل فقط
+    الرسالة الأولى: تفاصيل الأغنية
   */
   const detailsText = formatSongDetails(song);
 
@@ -147,7 +199,7 @@ async function handlePlaySong(context) {
   });
 
   /*
-    الرسالة الثانية: رابط الأغنية وحده في رسالة منفصلة
+    الرسالة الثانية: الرابط وحده
   */
   if (songUrl) {
     sendMusicMessage({
@@ -209,6 +261,74 @@ function handleLikeSong(context) {
   socket.sendRoomMessage(
     `Liked: ${result.song.songName}\nLikes: ${result.song.likesCount}`
   );
+
+  /*
+    إرسال رسالة خاصة لصاحب الأغنية عند الإعجاب
+    لا نرسل لو صاحب الأغنية هو نفس الشخص الذي عمل لايك
+  */
+  if (
+    result.song.requestedBy &&
+    !isSameUser(result.song.requestedBy, senderName)
+  ) {
+    sendPrivateSafe(
+      socket,
+      result.song.requestedBy,
+      [
+        "❤️ لديك إعجاب جديد على أغنيتك",
+        "",
+        `🎧 الأغنية: ${result.song.songName}`,
+        `🆔 ID: ${result.song.id}`,
+        `👤 من: ${senderName}`,
+        `❤️ عدد الإعجابات: ${result.song.likesCount}`,
+      ].join("\n")
+    );
+  }
+}
+
+function handleCommentSong(context) {
+  const { sender, socket, parsed } = context;
+
+  const songId = parsed.args[0];
+  const comment = parsed.args.slice(1).join("@").trim();
+
+  if (!songId || !comment) {
+    socket.sendRoomMessage("Use: com@song_id@comment");
+    return;
+  }
+
+  const senderName = getSenderName(sender);
+
+  const result = songLikesRepository.commentSong(songId, senderName, comment);
+
+  if (!result.ok && result.reason === "not_found") {
+    socket.sendRoomMessage("Song not found.");
+    return;
+  }
+
+  socket.sendRoomMessage("تم إرسال تعليقك لصاحب الأغنية في الخاص.");
+
+  /*
+    إرسال التعليق لصاحب الأغنية في الخاص
+    حتى لو صاحب الأغنية هو نفسه المعلق، يمكن منعها هنا
+  */
+  if (
+    result.song.requestedBy &&
+    !isSameUser(result.song.requestedBy, senderName)
+  ) {
+    sendPrivateSafe(
+      socket,
+      result.song.requestedBy,
+      [
+        "💬 لديك تعليق جديد على أغنيتك",
+        "",
+        `🎧 الأغنية: ${result.song.songName}`,
+        `🆔 ID: ${result.song.id}`,
+        `👤 من: ${senderName}`,
+        "",
+        `التعليق: ${comment}`,
+      ].join("\n")
+    );
+  }
 }
 
 function handleSongLikes(context) {
@@ -222,7 +342,9 @@ function handleSongLikes(context) {
   }
 
   const lines = top.map((song, index) => {
-    return `${index + 1}. ${song.songName} | ID: ${song.id} | ${song.likesCount || 0} likes`;
+    return `${index + 1}. ${song.songName} | ID: ${song.id} | ${
+      song.likesCount || 0
+    } likes | ${song.commentsCount || 0} comments`;
   });
 
   socket.sendRoomMessage(["Top songs:", ...lines].join("\n"));
@@ -247,6 +369,11 @@ async function handleMusicCommand(context) {
 
   if (parsed.command === "like_song") {
     handleLikeSong(context);
+    return true;
+  }
+
+  if (parsed.command === "comment_song") {
+    handleCommentSong(context);
     return true;
   }
 
