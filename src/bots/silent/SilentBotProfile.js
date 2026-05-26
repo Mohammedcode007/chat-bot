@@ -1,0 +1,25 @@
+function makeSilentBotProfile(bot) {
+  return `
+    <div style="font-family:sans-serif;">
+      <div style="font-weight:700;font-size:15px;color:#777;">
+        🤫 Silent Bot
+      </div>
+
+      <div style="font-size:13px;">
+        Room: <b>${bot.roomName}</b>
+      </div>
+
+      <div style="font-size:13px;">
+        Owner: <b>${bot.owner || "system"}</b>
+      </div>
+
+      <div style="margin-top:6px;font-size:12px;color:#888;">
+        Connected silently
+      </div>
+    </div>
+  `;
+}
+
+module.exports = {
+  makeSilentBotProfile,
+};

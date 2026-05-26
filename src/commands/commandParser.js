@@ -1,0 +1,290 @@
+const { COMMAND_PREFIX } = require("../constants/commands");
+
+function parseCommand(text) {
+  const raw = String(text || "").trim();
+
+  if (!raw) {
+    return null;
+  }
+
+  const lowerRaw = raw.toLowerCase();
+
+  /*
+    help
+    help1
+    help2
+    help3
+    help4
+  */
+  if (/^help[0-9]*$/i.test(lowerRaw)) {
+    return {
+      raw,
+      command: lowerRaw,
+      args: [],
+      hasPrefix: false,
+    };
+  }
+
+  /*
+    الصفحة التالية
+  */
+  if (lowerRaw === ".nx") {
+    return {
+      raw,
+      command: "nx",
+      args: [],
+      hasPrefix: false,
+    };
+  }
+
+  /*
+    آخر 100 مستخدم دخلوا الغرفة
+  */
+  if (lowerRaw === ".r") {
+    return {
+      raw,
+      command: "recent",
+      args: [],
+      hasPrefix: false,
+    };
+  }
+
+  /*
+    VIP
+    vip@username
+  */
+  if (lowerRaw.startsWith("vip@")) {
+    const username = raw.slice(4).trim();
+
+    if (!username) {
+      return null;
+    }
+
+    return {
+      raw,
+      command: "vip",
+      args: [username],
+      hasPrefix: false,
+    };
+  }
+
+  /*
+    Remove VIP
+    unvip@username
+  */
+  if (lowerRaw.startsWith("unvip@")) {
+    const username = raw.slice(6).trim();
+
+    if (!username) {
+      return null;
+    }
+
+    return {
+      raw,
+      command: "unvip",
+      args: [username],
+      hasPrefix: false,
+    };
+  }
+
+  /*
+    Verify
+    v@username
+  */
+  if (lowerRaw.startsWith("v@")) {
+    const username = raw.slice(2).trim();
+
+    if (!username) {
+      return null;
+    }
+
+    return {
+      raw,
+      command: "verify",
+      args: [username],
+      hasPrefix: false,
+    };
+  }
+
+  /*
+    Remove Verify
+    unver@username
+  */
+  if (lowerRaw.startsWith("unver@")) {
+    const username = raw.slice(6).trim();
+
+    if (!username) {
+      return null;
+    }
+
+    return {
+      raw,
+      command: "unverify",
+      args: [username],
+      hasPrefix: false,
+    };
+  }
+
+  /*
+    Add bot admin
+    admin@username
+  */
+  if (lowerRaw.startsWith("admin@")) {
+    const username = raw.slice(6).trim();
+
+    if (!username) {
+      return null;
+    }
+
+    return {
+      raw,
+      command: "adminadd",
+      args: [username],
+      hasPrefix: false,
+    };
+  }
+
+  /*
+    Remove bot admin
+    radmin@username
+  */
+  if (lowerRaw.startsWith("radmin@")) {
+    const username = raw.slice(7).trim();
+
+    if (!username) {
+      return null;
+    }
+
+    return {
+      raw,
+      command: "adminremove",
+      args: [username],
+      hasPrefix: false,
+    };
+  }
+
+  /*
+    Add master
+    mas@username
+  */
+  if (lowerRaw.startsWith("mas@")) {
+    const username = raw.slice(4).trim();
+
+    if (!username) {
+      return null;
+    }
+
+    return {
+      raw,
+      command: "mas",
+      args: [username],
+      hasPrefix: false,
+    };
+  }
+
+  /*
+    Remove master
+    rmas@username
+  */
+  if (lowerRaw.startsWith("rmas@")) {
+    const username = raw.slice(5).trim();
+
+    if (!username) {
+      return null;
+    }
+
+    return {
+      raw,
+      command: "rmas",
+      args: [username],
+      hasPrefix: false,
+    };
+  }
+if (lowerRaw.startsWith("تشغيل ")) {
+  const songName = raw.slice("تشغيل ".length).trim();
+
+  if (!songName) return null;
+
+  return {
+    raw,
+    command: "play_song",
+    args: [songName],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw === ".so") {
+  return {
+    raw,
+    command: "song_broadcast",
+    args: [],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw === ".sh") {
+  return {
+    raw,
+    command: "song_here",
+    args: [],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw === ".ps") {
+  return {
+    raw,
+    command: "song_private",
+    args: [],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw.startsWith("like@")) {
+  const songId = raw.slice(5).trim();
+
+  if (!songId) return null;
+
+  return {
+    raw,
+    command: "like_song",
+    args: [songId],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw === ".likes") {
+  return {
+    raw,
+    command: "song_likes",
+    args: [],
+    hasPrefix: false,
+  };
+}
+  /*
+    باقي الأوامر التي تبدأ بـ !
+  */
+  if (!raw.startsWith(COMMAND_PREFIX)) {
+    return null;
+  }
+
+  const withoutPrefix = raw.slice(COMMAND_PREFIX.length).trim();
+
+  if (!withoutPrefix) {
+    return null;
+  }
+
+  const parts = withoutPrefix.split(/\s+/);
+  const command = String(parts.shift() || "").toLowerCase();
+
+  return {
+    raw,
+    command,
+    args: parts,
+    hasPrefix: true,
+  };
+}
+
+module.exports = {
+  parseCommand,
+};
