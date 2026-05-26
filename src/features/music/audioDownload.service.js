@@ -44,75 +44,6 @@ function fileExists(filePath) {
   }
 }
 
-function buildYtDlpArgs({ sourceUrl, outputTemplate, cookiesPath }) {
-  const args = [];
-
-  /*
-    مهم:
-    لا نستخدم cookies إلا لو YT_DLP_USE_COOKIES=1
-    لأن cookies.txt عندك سبب فشل التحميل.
-  */
-  const useCookies = process.env.YT_DLP_USE_COOKIES === "1";
-
-  if (useCookies && fileExists(cookiesPath)) {
-    args.push("--cookies", cookiesPath);
-  } else {
-    console.log("🍪 yt-dlp cookies disabled or not found:", {
-      useCookies,
-      cookiesPath,
-    });
-  }
-
-  /*
-    Deno ضروري عندك لأن yt-dlp نجح يدويًا مع:
-    --js-runtimes deno
-  */
-  if (process.env.YT_DLP_USE_DENO === "1") {
-    args.push("--js-runtimes", "deno");
-  }
-
-  /*
-    إعدادات ثبات لتقليل التعليق وإعادة المحاولة.
-  */
-  args.push(
-    "--socket-timeout",
-    "20",
-    "--retries",
-    "2",
-    "--fragment-retries",
-    "2",
-    "--no-playlist",
-    "--restrict-filenames"
-  );
-
-  /*
-    طالما ffmpeg أصبح مثبتًا عندك، سنحول إلى mp3.
-    لو أردت لاحقًا تعطيل التحويل ضع AUDIO_FORCE_MP3=0.
-  */
-  if (process.env.AUDIO_FORCE_MP3 === "0") {
-    args.push(
-      "-f",
-      "bestaudio[ext=m4a]/bestaudio"
-    );
-  } else {
-    args.push(
-      "--extract-audio",
-      "--audio-format",
-      "mp3",
-      "--audio-quality",
-      "0"
-    );
-  }
-
-  args.push(
-    "-o",
-    outputTemplate,
-    sourceUrl
-  );
-
-  return args;
-}
-
 async function downloadAudioToLocal(params) {
   const sourceUrl = params && params.sourceUrl;
 
@@ -125,21 +56,56 @@ async function downloadAudioToLocal(params) {
   const fileId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const outputTemplate = path.join(AUDIO_TEMP_DIR, `${fileId}.%(ext)s`);
 
+  /*
+    مهم:
+    ضع cookies.txt داخل جذر المشروع:
+    /root/chat-bot/cookies.txt
+
+    أو حدد مساره من .env:
+    YT_DLP_COOKIES_PATH=/root/chat-bot/cookies.txt
+  */
   const cookiesPath =
     process.env.YT_DLP_COOKIES_PATH ||
     process.env.YTDLP_COOKIES_PATH ||
     path.join(process.cwd(), "cookies.txt");
 
-  const args = buildYtDlpArgs({
-    sourceUrl,
-    outputTemplate,
-    cookiesPath,
-  });
+  if (!fileExists(cookiesPath)) {
+    throw new Error(`cookies.txt not found at: ${cookiesPath}`);
+  }
 
   const env = {
     ...process.env,
     PATH: `/root/.deno/bin:${process.env.PATH || ""}`,
   };
+
+  const args = [
+    "--cookies",
+    cookiesPath,
+
+    "--js-runtimes",
+    "deno",
+
+    "--extract-audio",
+    "--audio-format",
+    "mp3",
+    "--audio-quality",
+    "0",
+
+    "--no-playlist",
+    "--restrict-filenames",
+
+    "--socket-timeout",
+    "30",
+    "--retries",
+    "3",
+    "--fragment-retries",
+    "3",
+
+    "-o",
+    outputTemplate,
+
+    sourceUrl,
+  ];
 
   console.log("🎧 yt-dlp sourceUrl:", sourceUrl);
   console.log("🎧 yt-dlp outputTemplate:", outputTemplate);
@@ -179,23 +145,19 @@ async function downloadAudioToLocal(params) {
 
   const files = fs.readdirSync(AUDIO_TEMP_DIR);
 
-  const expectedMp3 = files.find((file) => {
+  const matched = files.find((file) => {
     return file.startsWith(fileId) && file.endsWith(".mp3");
   });
 
-  const anyMatchedAudio = files.find((file) => {
-    return file.startsWith(fileId);
-  });
-
-  const matched = expectedMp3 || anyMatchedAudio;
-
   if (!matched) {
-    throw new Error("Downloaded audio file not found");
+    throw new Error("Downloaded mp3 file not found");
   }
 
   const absolutePath = path.join(AUDIO_TEMP_DIR, matched);
   const publicUrl = `${buildBaseUrl()}/uploads/audio-temp/${matched}`;
 
+  console.log("🎧 FINAL filename:", matched);
+  console.log("🎧 FINAL absolutePath:", absolutePath);
   console.log("🎧 FINAL publicUrl:", publicUrl);
 
   scheduleDeleteFile(absolutePath, AUDIO_TTL_MS);
