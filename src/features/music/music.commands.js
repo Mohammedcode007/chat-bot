@@ -20,16 +20,6 @@ function getSenderName(sender) {
   );
 }
 
-function normalizeName(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase();
-}
-
-function isSameUser(a, b) {
-  return normalizeName(a) === normalizeName(b);
-}
-
 function isMusicCommand(command) {
   return [
     "play_song",
@@ -42,10 +32,6 @@ function isMusicCommand(command) {
   ].includes(command);
 }
 
-/*
-  استخراج رابط الأغنية من buildMusicReply
-  مهم: musicReply.service عندك يرجع الرابط داخل meta.mp3Url
-*/
 function getSongUrlFromResult(result) {
   if (!result) return "";
 
@@ -86,34 +72,23 @@ function getSongUrlFromResult(result) {
   return "";
 }
 
-/*
-  رسالة التفاصيل فقط بدون الرابط
-*/
 function formatSongDetails(song) {
   return [
-    "🎵 تم تجهيز الأغنية",
-    "",
-    `🎧 الاسم: ${song.songName}`,
-    `🆔 ID: ${song.id}`,
-    `👤 بواسطة: ${song.requestedBy}`,
-    `🏠 الغرفة: ${song.roomName}`,
-    "",
-    `❤️ للإعجاب: like@${song.id}`,
-    `💬 للتعليق: com@${song.id}@تعليقك`,
+    "🎵 Song ready",
+    song.songName,
+    `${song.requestedBy}@${song.roomName}`,
+    `like@${song.id}`,
+    `com@${song.id}@msg`,
   ].join("\n");
 }
 
 function formatSongBroadcast(song) {
   return [
-    "🎵 Song request",
-    "",
-    `Song: ${song.songName}`,
-    `ID: ${song.id}`,
-    `By: ${song.requestedBy}`,
-    `Room: ${song.roomName}`,
-    "",
-    `Like: like@${song.id}`,
-    `Comment: com@${song.id}@your comment`,
+    "🎵 Song",
+    song.songName,
+    `${song.requestedBy}@${song.roomName}`,
+    `like@${song.id}`,
+    `com@${song.id}@msg`,
   ].join("\n");
 }
 
@@ -130,17 +105,37 @@ function sendMusicMessage({ socket, runtime, text }) {
 }
 
 function sendPrivateSafe(socket, to, text) {
-  if (!socket || typeof socket.sendPrivate !== "function") {
-    console.log("⚠️ sendPrivate not available on socket");
-    return false;
-  }
-
   if (!to) {
-    console.log("⚠️ sendPrivate ignored: missing target");
+    console.log("⚠️ [MUSIC_PRIVATE] missing target");
     return false;
   }
 
-  return socket.sendPrivate(to, text);
+  if (!text) {
+    console.log("⚠️ [MUSIC_PRIVATE] missing text");
+    return false;
+  }
+
+  if (!socket || typeof socket.sendPrivate !== "function") {
+    console.log("❌ [MUSIC_PRIVATE] sendPrivate not available", {
+      to,
+      socketKeys: socket ? Object.keys(socket) : [],
+    });
+    return false;
+  }
+
+  console.log("📩 [MUSIC_PRIVATE_SEND]", {
+    to,
+    body: text,
+  });
+
+  const sent = socket.sendPrivate(to, text);
+
+  console.log("📩 [MUSIC_PRIVATE_RESULT]", {
+    to,
+    sent,
+  });
+
+  return sent;
 }
 
 async function handlePlaySong(context) {
@@ -149,11 +144,11 @@ async function handlePlaySong(context) {
   const songName = parsed.args.join(" ").trim();
 
   if (!songName) {
-    socket.sendRoomMessage("اكتب اسم الأغنية بعد الأمر");
+    socket.sendRoomMessage("Song name?");
     return;
   }
 
-  socket.sendRoomMessage(`جاري تجهيز الأغنية: ${songName}`);
+  socket.sendRoomMessage(`Loading: ${songName}`);
 
   const result = await buildMusicReply(text || `تشغيل ${songName}`, {
     requestedBy: sender,
@@ -161,12 +156,12 @@ async function handlePlaySong(context) {
   });
 
   if (!result || !result.handled) {
-    socket.sendRoomMessage("لم أستطع تجهيز الأغنية.");
+    socket.sendRoomMessage("Song failed.");
     return;
   }
 
   if (result.success === false) {
-    socket.sendRoomMessage(result.text || "فشل تجهيز الأغنية.");
+    socket.sendRoomMessage("Song failed.");
     return;
   }
 
@@ -187,35 +182,27 @@ async function handlePlaySong(context) {
     url: songUrl,
   });
 
-  /*
-    الرسالة الأولى: تفاصيل الأغنية
-  */
-  const detailsText = formatSongDetails(song);
-
   sendMusicMessage({
     socket,
     runtime,
-    text: detailsText,
+    text: formatSongDetails(song),
   });
 
-  /*
-    الرسالة الثانية: الرابط وحده
-  */
-if (songUrl) {
-  if (socket && typeof socket.sendRoomAudioUrl === "function") {
-    socket.sendRoomAudioUrl(songUrl);
+  if (songUrl) {
+    if (socket && typeof socket.sendRoomAudioUrl === "function") {
+      socket.sendRoomAudioUrl(songUrl);
+    } else {
+      socket.sendRoomMessage(songUrl);
+    }
   } else {
-    socket.sendRoomMessage(songUrl);
+    socket.sendRoomMessage("No audio URL.");
   }
-} else {
-  socket.sendRoomMessage("تم تجهيز الأغنية لكن لم أجد رابط الصوت.");
-}
 }
 
 function handleSongShortcut(context) {
   const { bot, sender, socket, parsed, runtime } = context;
 
-  const fakeSongName = parsed.args.join(" ").trim() || "بدون اسم";
+  const fakeSongName = parsed.args.join(" ").trim() || "No name";
   const senderName = getSenderName(sender);
 
   const song = songLikesRepository.createSong({
@@ -225,12 +212,10 @@ function handleSongShortcut(context) {
     url: "",
   });
 
-  const message = formatSongBroadcast(song);
-
   sendMusicMessage({
     socket,
     runtime,
-    text: message,
+    text: formatSongBroadcast(song),
   });
 }
 
@@ -240,7 +225,7 @@ function handleLikeSong(context) {
   const songId = parsed.args[0];
 
   if (!songId) {
-    socket.sendRoomMessage("Use: like@song_id");
+    socket.sendRoomMessage("Use: like@id");
     return;
   }
 
@@ -249,37 +234,26 @@ function handleLikeSong(context) {
   const result = songLikesRepository.likeSong(songId, senderName);
 
   if (!result.ok && result.reason === "not_found") {
-    socket.sendRoomMessage("Song not found.");
+    socket.sendRoomMessage("Not found.");
     return;
   }
 
   if (!result.ok && result.reason === "already_liked") {
-    socket.sendRoomMessage("You already liked this song.");
+    socket.sendRoomMessage("Already liked.");
     return;
   }
 
-  socket.sendRoomMessage(
-    `Liked: ${result.song.songName}\nLikes: ${result.song.likesCount}`
-  );
+  socket.sendRoomMessage(`Liked\n${result.song.songName}\nLikes: ${result.song.likesCount}`);
 
-  /*
-    إرسال رسالة خاصة لصاحب الأغنية عند الإعجاب
-    لا نرسل لو صاحب الأغنية هو نفس الشخص الذي عمل لايك
-  */
-  if (
-    result.song.requestedBy &&
-    !isSameUser(result.song.requestedBy, senderName)
-  ) {
+  if (result.song.requestedBy) {
     sendPrivateSafe(
       socket,
       result.song.requestedBy,
       [
-        "❤️ لديك إعجاب جديد على أغنيتك",
-        "",
-        `🎧 الأغنية: ${result.song.songName}`,
-        `🆔 ID: ${result.song.id}`,
-        `👤 من: ${senderName}`,
-        `❤️ عدد الإعجابات: ${result.song.likesCount}`,
+        "New like",
+        result.song.songName,
+        `From: ${senderName}`,
+        `Likes: ${result.song.likesCount}`,
       ].join("\n")
     );
   }
@@ -292,7 +266,7 @@ function handleCommentSong(context) {
   const comment = parsed.args.slice(1).join("@").trim();
 
   if (!songId || !comment) {
-    socket.sendRoomMessage("Use: com@song_id@comment");
+    socket.sendRoomMessage("Use: com@id@msg");
     return;
   }
 
@@ -301,31 +275,26 @@ function handleCommentSong(context) {
   const result = songLikesRepository.commentSong(songId, senderName, comment);
 
   if (!result.ok && result.reason === "not_found") {
-    socket.sendRoomMessage("Song not found.");
+    socket.sendRoomMessage("Not found.");
     return;
   }
 
-  socket.sendRoomMessage("تم إرسال تعليقك لصاحب الأغنية في الخاص.");
+  if (!result.ok && result.reason === "empty_comment") {
+    socket.sendRoomMessage("Empty comment.");
+    return;
+  }
 
-  /*
-    إرسال التعليق لصاحب الأغنية في الخاص
-    حتى لو صاحب الأغنية هو نفسه المعلق، يمكن منعها هنا
-  */
-  if (
-    result.song.requestedBy &&
-    !isSameUser(result.song.requestedBy, senderName)
-  ) {
+  socket.sendRoomMessage("Comment sent.");
+
+  if (result.song.requestedBy) {
     sendPrivateSafe(
       socket,
       result.song.requestedBy,
       [
-        "💬 لديك تعليق جديد على أغنيتك",
-        "",
-        `🎧 الأغنية: ${result.song.songName}`,
-        `🆔 ID: ${result.song.id}`,
-        `👤 من: ${senderName}`,
-        "",
-        `التعليق: ${comment}`,
+        "New comment",
+        result.song.songName,
+        `From: ${senderName}`,
+        comment,
       ].join("\n")
     );
   }
@@ -337,17 +306,15 @@ function handleSongLikes(context) {
   const top = songLikesRepository.getTopSongs(10);
 
   if (!top.length) {
-    socket.sendRoomMessage("No song likes yet.");
+    socket.sendRoomMessage("No likes.");
     return;
   }
 
   const lines = top.map((song, index) => {
-    return `${index + 1}. ${song.songName} | ID: ${song.id} | ${
-      song.likesCount || 0
-    } likes | ${song.commentsCount || 0} comments`;
+    return `${index + 1}. ${song.songName} | ${song.id} | ${song.likesCount || 0} likes | ${song.commentsCount || 0} comments`;
   });
 
-  socket.sendRoomMessage(["Top songs:", ...lines].join("\n"));
+  socket.sendRoomMessage(lines.join("\n"));
 }
 
 async function handleMusicCommand(context) {

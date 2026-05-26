@@ -591,29 +591,34 @@ class SocketClient {
 
     return this.send(payload);
   }
-  sendPrivate(to, text) {
-    if (!to) {
-      console.log("⚠️ sendPrivate ignored: missing receiver");
-      return false;
-    }
-
-    const payload = {
-      handler: SOCKET_HANDLERS.CHAT_MESSAGE,
-      to: String(to),
-      body: String(text || ""),
-      type: "text",
-      id: makeId("private_msg"),
-    };
-
-    console.log("📤 [SEND_PRIVATE]", {
-      from: this.username,
-      to: payload.to,
-      body: payload.body,
-      payload,
-    });
-
-    return this.send(payload);
+sendPrivate(to, text) {
+  if (!to) {
+    console.log("⚠️ sendPrivate ignored: missing receiver");
+    return false;
   }
+
+  if (!text) {
+    console.log("⚠️ sendPrivate ignored: missing text");
+    return false;
+  }
+
+  const payload = {
+    handler: "chat_message",
+    id: Date.now().toString(),
+    to: String(to),
+    body: String(text || ""),
+    type: "text",
+  };
+
+  console.log("📤 [SEND_PRIVATE_DIRECT]", {
+    from: this.username,
+    to: payload.to,
+    body: payload.body,
+    payload,
+  });
+
+  return this.send(payload);
+}
 
   updateProfile(html) {
     const payload = {
