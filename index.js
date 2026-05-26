@@ -1,25 +1,3 @@
-// require("dotenv").config();
-
-// const { BotRuntime } = require("./src/core/BotRuntime");
-
-// const runtime = new BotRuntime();
-
-// runtime.start();
-
-// process.on("SIGINT", () => {
-//   console.log("\n🛑 Stopping bot runtime...");
-//   runtime.stop();
-//   process.exit(0);
-// });
-
-// process.on("uncaughtException", (err) => {
-//   console.error("❌ uncaughtException:", err);
-// });
-
-// process.on("unhandledRejection", (err) => {
-//   console.error("❌ unhandledRejection:", err);
-// });
-
 
 require("dotenv").config();
 

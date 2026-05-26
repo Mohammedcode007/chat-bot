@@ -201,15 +201,15 @@ async function handlePlaySong(context) {
   /*
     الرسالة الثانية: الرابط وحده
   */
-  if (songUrl) {
-    sendMusicMessage({
-      socket,
-      runtime,
-      text: songUrl,
-    });
+if (songUrl) {
+  if (socket && typeof socket.sendRoomAudioUrl === "function") {
+    socket.sendRoomAudioUrl(songUrl);
   } else {
-    socket.sendRoomMessage("تم تجهيز الأغنية لكن لم أجد رابط الصوت.");
+    socket.sendRoomMessage(songUrl);
   }
+} else {
+  socket.sendRoomMessage("تم تجهيز الأغنية لكن لم أجد رابط الصوت.");
+}
 }
 
 function handleSongShortcut(context) {

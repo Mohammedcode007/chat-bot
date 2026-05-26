@@ -107,7 +107,7 @@
 //     });
 //   }
 
- 
+
 // joinRoom(roomName = this.roomName) {
 //   if (!roomName) {
 //     console.log(`⚠️ joinRoom ignored: ${this.username} has no roomName`);
@@ -556,7 +556,41 @@ class SocketClient {
 
     return this.send(payload);
   }
+  sendRoomAudioUrl(audioUrl, roomName = this.roomName) {
+    if (!roomName) {
+      console.log(`⚠️ sendRoomAudioUrl ignored: ${this.username} has no roomName`);
+      return false;
+    }
 
+    if (!audioUrl) {
+      console.log("⚠️ sendRoomAudioUrl ignored: missing audioUrl");
+      return false;
+    }
+
+    const payload = {
+      handler: SOCKET_HANDLERS.ROOM_MESSAGE,
+      room: roomName,
+
+      /*
+        مهم:
+        الرابط هنا في url وليس body
+      */
+      body: "",
+      type: "audio",
+      id: makeId("room_audio"),
+      url: String(audioUrl),
+      length: "2",
+    };
+
+    console.log("📤 [ROOM_AUDIO_URL_SEND]", {
+      username: this.username,
+      roomName,
+      url: payload.url,
+      payload,
+    });
+
+    return this.send(payload);
+  }
   sendPrivate(to, text) {
     if (!to) {
       console.log("⚠️ sendPrivate ignored: missing receiver");
