@@ -72,24 +72,38 @@ function getSongUrlFromResult(result) {
   return "";
 }
 
+function cleanShortSongName(value) {
+  const cleaned = String(value || "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 6);
+
+  return cleaned || "song";
+}
+
 function formatSongDetails(song) {
-  return [
-    "🎵 Song ready",
-    "",
-    song.songName,
+  const lines = [
+    cleanShortSongName(song.songName),
     "",
     `${song.requestedBy}@${song.roomName}`,
+  ];
+
+  if (song.customMessage) {
+    lines.push(String(song.customMessage).trim());
+  }
+
+  lines.push(
     "",
     song.url || "",
     "",
     `like@${song.id}`,
     "",
-    `com@${song.id}@msg`,
-  ]
+    `com@${song.id}@msg`
+  );
+
+  return lines
     .filter((v) => v !== null && v !== undefined)
     .join("\n");
 }
-
 function sendRoomTextSafe(socket, text) {
   if (!socket || !text) return false;
 
@@ -403,13 +417,13 @@ async function handlePlaySong(context) {
     return;
   }
 
-  const song = songLikesRepository.createSong({
-    songName: prepared.title,
-    roomName: bot.roomName,
-    requestedBy: senderName,
-    url: prepared.url,
-  });
-
+const song = songLikesRepository.createSong({
+  songName: prepared.title,
+  roomName: bot.roomName,
+  requestedBy: senderName,
+  url: prepared.url,
+  customMessage: "",
+});
   sendRoomTextSafe(socket, formatSongDetails(song));
 
   if (prepared.url) {
@@ -440,8 +454,11 @@ async function handleSongGlobal(context) {
   sendRoomTextSafe(socket, `Loading: ${songName}`);
 
   const senderName = getSenderName(sender);
-
-  const prepared = await prepareSong({
+const customMessage =
+  parsed && parsed.meta && parsed.meta.customMessage
+    ? String(parsed.meta.customMessage).trim()
+    : "";
+  const prepared = await prepareSong( {
     songName,
     sender,
     roomName: bot.roomName,
@@ -470,12 +487,13 @@ async function handleSongGlobal(context) {
   const sourceRoomName = bot.roomName;
 
   for (const target of targets) {
-    const song = songLikesRepository.createSong({
-      songName: prepared.title,
-      roomName: sourceRoomName,
-      requestedBy: senderName,
-      url: prepared.url,
-    });
+  const song = songLikesRepository.createSong({
+  songName: prepared.title,
+  roomName: sourceRoomName,
+  requestedBy: senderName,
+  url: prepared.url,
+  customMessage,
+});
 
     const text = formatSongDetails(song);
 
@@ -648,7 +666,7 @@ function handleSongLikes(context) {
   }
 
   const lines = topUsers.map((user, index) => {
-    return `${index + 1}. ${user.username} | ${user.likesCount} likes | ${user.songsCount} songs | ${user.commentsCount} comments`;
+    return `${index + 1}. ${user.username} | ${user.likesCount} likes`;
   });
 
   sendRoomTextSafe(socket, ["Top liked users:", "", ...lines].join("\n"));

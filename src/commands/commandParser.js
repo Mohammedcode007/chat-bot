@@ -200,35 +200,59 @@ function parseCommand(text) {
       hasPrefix: false,
     };
   }
-if (lowerRaw.startsWith("تشغيل ")) {
-  const songName = raw.slice("تشغيل ".length).trim();
+  if (lowerRaw.startsWith("تشغيل ")) {
+    const songName = raw.slice("تشغيل ".length).trim();
 
-  if (!songName) return null;
+    if (!songName) return null;
 
-  return {
-    raw,
-    command: "play_song",
-    args: [songName],
-    hasPrefix: false,
-  };
-}
+    return {
+      raw,
+      command: "play_song",
+      args: [songName],
+      hasPrefix: false,
+    };
+  }
 /*
-  .so song name
-  .sh song name
-  .ps song name
+  .so@songname@msg
+  .sh@songname@msg
+  .ps@songname@msg
 
-  تعمل مثل تشغيل تماماً
-  لكن ترسل في كل الغرف المتصلة:
-  - لو بوت الموسيقى موجود في الغرفة يرسل هو
-  - لو غير موجود يرسل بوت التحكم
+  أو:
+  .so songname
+  .sh songname
+  .ps songname
 */
 if (
+  lowerRaw.startsWith(".so@") ||
+  lowerRaw.startsWith(".sh@") ||
+  lowerRaw.startsWith(".ps@") ||
   lowerRaw.startsWith(".so ") ||
   lowerRaw.startsWith(".sh ") ||
   lowerRaw.startsWith(".ps ")
 ) {
   const commandText = lowerRaw.slice(0, 3);
-  const songName = raw.slice(3).trim();
+
+  let body = "";
+
+  if (raw.charAt(3) === "@") {
+    body = raw.slice(4).trim();
+  } else {
+    body = raw.slice(3).trim();
+  }
+
+  if (!body) {
+    return null;
+  }
+
+  let songName = body;
+  let customMessage = "";
+
+  const atIndex = body.indexOf("@");
+
+  if (atIndex !== -1) {
+    songName = body.slice(0, atIndex).trim();
+    customMessage = body.slice(atIndex + 1).trim();
+  }
 
   if (!songName) {
     return null;
@@ -248,63 +272,65 @@ if (
     raw,
     command,
     args: [songName],
+    meta: {
+      customMessage,
+    },
     hasPrefix: false,
   };
 }
+  if (lowerRaw.startsWith("like@")) {
+    const songId = raw.slice(5).trim();
 
-if (lowerRaw.startsWith("like@")) {
-  const songId = raw.slice(5).trim();
+    if (!songId) return null;
 
-  if (!songId) return null;
+    if (!/^[a-z0-9]{1,6}$/i.test(songId)) {
+      return null;
+    }
 
-  if (!/^[a-z0-9]{1,6}$/i.test(songId)) {
-    return null;
+    return {
+      raw,
+      command: "like_song",
+      args: [songId],
+      hasPrefix: false,
+    };
   }
+  if (lowerRaw.startsWith("com@")) {
+    const rest = raw.slice(4).trim();
 
-  return {
-    raw,
-    command: "like_song",
-    args: [songId],
-    hasPrefix: false,
-  };
-}
-if (lowerRaw.startsWith("com@")) {
-  const rest = raw.slice(4).trim();
+    if (!rest) return null;
 
-  if (!rest) return null;
+    const firstAtIndex = rest.indexOf("@");
 
-  const firstAtIndex = rest.indexOf("@");
+    if (firstAtIndex === -1) {
+      return null;
+    }
 
-  if (firstAtIndex === -1) {
-    return null;
+    const songId = rest.slice(0, firstAtIndex).trim();
+    const comment = rest.slice(firstAtIndex + 1).trim();
+
+    if (!songId || !comment) {
+      return null;
+    }
+
+    if (!/^[a-z0-9]{1,6}$/i.test(songId)) {
+      return null;
+    }
+
+    return {
+      raw,
+      command: "comment_song",
+      args: [songId, comment],
+      hasPrefix: false,
+    };
   }
-
-  const songId = rest.slice(0, firstAtIndex).trim();
-  const comment = rest.slice(firstAtIndex + 1).trim();
-
-  if (!songId || !comment) {
-    return null;
+  if (lowerRaw === ".likes") {
+    return {
+      raw,
+      command: "song_likes",
+      args: [],
+      hasPrefix: false,
+    };
   }
-
-  if (!/^[a-z0-9]{1,6}$/i.test(songId)) {
-    return null;
-  }
-
-  return {
-    raw,
-    command: "comment_song",
-    args: [songId, comment],
-    hasPrefix: false,
-  };
-}
-if (lowerRaw === ".likes") {
-  return {
-    raw,
-    command: "song_likes",
-    args: [],
-    hasPrefix: false,
-  };
-}
   /*
     باقي الأوامر التي تبدأ بـ !
   */

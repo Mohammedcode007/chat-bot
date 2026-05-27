@@ -48,30 +48,30 @@ class SongLikesRepository {
     return songLikesStore.write(data);
   }
 
-  createSong({ songName, roomName, requestedBy, url }) {
-    const data = this.getAll();
+createSong({ songName, roomName, requestedBy, url, customMessage }) {
+  const data = this.getAll();
 
-    const id = generateUniqueSongId(data.songs);
+  const id = generateUniqueSongId(data.songs);
 
-    data.songs[id] = {
-      id,
-      songName,
-      roomName,
-      requestedBy,
-      url: url || "",
-      createdAt: new Date().toISOString(),
-      likesCount: 0,
-      commentsCount: 0,
-    };
+  data.songs[id] = {
+    id,
+    songName,
+    roomName,
+    requestedBy,
+    url: url || "",
+    customMessage: customMessage || "",
+    createdAt: new Date().toISOString(),
+    likesCount: 0,
+    commentsCount: 0,
+  };
 
-    data.likes[id] = [];
-    data.comments[id] = [];
+  data.likes[id] = [];
+  data.comments[id] = [];
 
-    this.saveAll(data);
+  this.saveAll(data);
 
-    return data.songs[id];
-  }
-
+  return data.songs[id];
+}
   likeSong(songId, username) {
     const data = this.getAll();
 
@@ -169,7 +169,42 @@ class SongLikesRepository {
       .sort((a, b) => Number(b.likesCount || 0) - Number(a.likesCount || 0))
       .slice(0, limit);
   }
+getTopLikedUsers(limit = 10) {
+  const data = this.getAll();
 
+  const usersMap = new Map();
+
+  for (const song of Object.values(data.songs)) {
+    const username = String(song.requestedBy || "").trim();
+
+    if (!username) {
+      continue;
+    }
+
+    const likesCount = Number(song.likesCount || 0);
+
+    if (likesCount <= 0) {
+      continue;
+    }
+
+    const key = normalizeUsername(username);
+
+    if (!usersMap.has(key)) {
+      usersMap.set(key, {
+        username,
+        likesCount: 0,
+      });
+    }
+
+    const user = usersMap.get(key);
+
+    user.likesCount += likesCount;
+  }
+
+  return Array.from(usersMap.values())
+    .sort((a, b) => Number(b.likesCount || 0) - Number(a.likesCount || 0))
+    .slice(0, limit);
+}
   /*
     أكثر 10 أشخاص تم عمل لايك لهم.
     التجميع هنا يكون حسب requestedBy، وليس حسب اسم الأغنية.
