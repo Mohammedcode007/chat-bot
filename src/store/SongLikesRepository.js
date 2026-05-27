@@ -169,6 +169,62 @@ class SongLikesRepository {
       .sort((a, b) => Number(b.likesCount || 0) - Number(a.likesCount || 0))
       .slice(0, limit);
   }
+
+  /*
+    أكثر 10 أشخاص تم عمل لايك لهم.
+    التجميع هنا يكون حسب requestedBy، وليس حسب اسم الأغنية.
+  */
+  getTopLikedUsers(limit = 10) {
+    const data = this.getAll();
+
+    const usersMap = new Map();
+
+    for (const song of Object.values(data.songs)) {
+      const username = String(song.requestedBy || "").trim();
+
+      if (!username) {
+        continue;
+      }
+
+      const likesCount = Number(song.likesCount || 0);
+      const commentsCount = Number(song.commentsCount || 0);
+
+      if (likesCount <= 0) {
+        continue;
+      }
+
+      const key = normalizeUsername(username);
+
+      if (!usersMap.has(key)) {
+        usersMap.set(key, {
+          username,
+          likesCount: 0,
+          commentsCount: 0,
+          songsCount: 0,
+        });
+      }
+
+      const user = usersMap.get(key);
+
+      user.likesCount += likesCount;
+      user.commentsCount += commentsCount;
+      user.songsCount += 1;
+    }
+
+    return Array.from(usersMap.values())
+      .sort((a, b) => {
+        if (Number(b.likesCount || 0) !== Number(a.likesCount || 0)) {
+          return Number(b.likesCount || 0) - Number(a.likesCount || 0);
+        }
+
+        if (Number(b.commentsCount || 0) !== Number(a.commentsCount || 0)) {
+          return Number(b.commentsCount || 0) - Number(a.commentsCount || 0);
+        }
+
+        return Number(b.songsCount || 0) - Number(a.songsCount || 0);
+      })
+      .slice(0, limit);
+  }
 }
 
 module.exports = {

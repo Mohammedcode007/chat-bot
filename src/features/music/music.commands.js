@@ -597,23 +597,55 @@ function handleCommentSong(context) {
   }
 }
 
+function getAllSongsForLikesRanking() {
+  /*
+    الأفضل لو عندك في SongLikesRepository دالة getAllSongs
+  */
+  if (typeof songLikesRepository.getAllSongs === "function") {
+    return songLikesRepository.getAllSongs() || [];
+  }
+
+  /*
+    احتياطي لو عندك دالة getSongs
+  */
+  if (typeof songLikesRepository.getSongs === "function") {
+    return songLikesRepository.getSongs() || [];
+  }
+
+  /*
+    احتياطي لو عندك دالة listSongs
+  */
+  if (typeof songLikesRepository.listSongs === "function") {
+    return songLikesRepository.listSongs() || [];
+  }
+
+  /*
+    حل مؤقت:
+    لو الموجود فقط getTopSongs، نجيب عدد كبير بدل 10
+    حتى نقدر نجمع الأشخاص.
+  */
+  if (typeof songLikesRepository.getTopSongs === "function") {
+    return songLikesRepository.getTopSongs(10000) || [];
+  }
+
+  return [];
+}
+
 function handleSongLikes(context) {
   const { socket } = context;
 
-  const top = songLikesRepository.getTopSongs(10);
+  const topUsers = songLikesRepository.getTopLikedUsers(10);
 
-  if (!top.length) {
+  if (!topUsers.length) {
     sendRoomTextSafe(socket, "No likes.");
     return;
   }
 
-  const lines = top.map((song, index) => {
-    return `${index + 1}. ${song.songName} | ${song.id} | ${
-      song.likesCount || 0
-    } likes | ${song.commentsCount || 0} comments`;
+  const lines = topUsers.map((user, index) => {
+    return `${index + 1}. ${user.username} | ${user.likesCount} likes | ${user.songsCount} songs | ${user.commentsCount} comments`;
   });
 
-  sendRoomTextSafe(socket, lines.join("\n"));
+  sendRoomTextSafe(socket, ["Top liked users:", "", ...lines].join("\n"));
 }
 
 async function handleMusicCommand(context) {
