@@ -368,24 +368,10 @@ async function prepareSong({ songName, sender, roomName }) {
     roomName,
   });
 
-  console.log("🎵 [BUILD_MUSIC_REPLY_RESULT]", {
-    handled: result && result.handled,
-    success: result && result.success,
-    text: result && result.text,
-    meta: result && result.meta,
-  });
-
-  if (!result || !result.handled) {
+  if (!result || !result.handled || result.success === false) {
     return {
       ok: false,
-      error: "Song command not handled.",
-    };
-  }
-
-  if (result.success === false) {
-    return {
-      ok: false,
-      error: result.text || "Song failed.",
+      error: "Song failed.",
     };
   }
 
@@ -396,13 +382,6 @@ async function prepareSong({ songName, sender, roomName }) {
     songName;
 
   const songUrl = getSongUrlFromResult(result);
-
-  if (!songUrl) {
-    return {
-      ok: false,
-      error: "No audio URL.",
-    };
-  }
 
   return {
     ok: true,
