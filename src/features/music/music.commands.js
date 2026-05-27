@@ -463,12 +463,16 @@ async function handleSongGlobal(context) {
   let musicCount = 0;
   let controllerCount = 0;
 
-  for (const target of targets) {
-    const targetRoomName = target.roomName || bot.roomName;
+  /*
+    اسم الغرفة الأصلية التي تم تشغيل الأمر منها.
+    هذا الاسم سيظهر في كل الرسائل، وليس اسم كل غرفة مستقبلة.
+  */
+  const sourceRoomName = bot.roomName;
 
+  for (const target of targets) {
     const song = songLikesRepository.createSong({
       songName: prepared.title,
-      roomName: targetRoomName,
+      roomName: sourceRoomName,
       requestedBy: senderName,
       url: prepared.url,
     });
@@ -477,17 +481,18 @@ async function handleSongGlobal(context) {
 
     const sentText = sendRoomTextSafe(target.socket, text);
 
-  if (prepared.url) {
-  const audioSent = sendRoomAudioSafe(target.socket, prepared.url);
+    if (prepared.url) {
+      const audioSent = sendRoomAudioSafe(target.socket, prepared.url);
 
-  if (!audioSent) {
-    console.log("❌ [GLOBAL_AUDIO_NOT_SENT]", {
-      roomName: target.roomName,
-      type: target.type,
-      url: prepared.url,
-    });
-  }
-}
+      if (!audioSent) {
+        console.log("❌ [GLOBAL_AUDIO_NOT_SENT]", {
+          sourceRoomName,
+          targetRoomName: target.roomName,
+          type: target.type,
+          url: prepared.url,
+        });
+      }
+    }
 
     if (sentText) {
       sentCount += 1;
@@ -505,6 +510,7 @@ async function handleSongGlobal(context) {
   console.log("🎵 [SONG_GLOBAL_DONE]", {
     command: parsed.command,
     songName,
+    sourceRoomName,
     sentCount,
     musicCount,
     controllerCount,
