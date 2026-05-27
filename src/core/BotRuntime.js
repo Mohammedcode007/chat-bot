@@ -272,7 +272,85 @@ class BotRuntime {
     instance.sendRoomMessage(text);
     return true;
   }
+  broadcastSongToMusicOrController(text) {
+    if (!text || !this.registry || !this.registry.connections) {
+      return {
+        sent: 0,
+        music: 0,
+        controller: 0,
+      };
+    }
 
+    const sentRooms = new Set();
+
+    let musicCount = 0;
+    let controllerCount = 0;
+
+    /*
+      First priority: Music bots
+    */
+    for (const [key, instance] of this.registry.connections.entries()) {
+      if (!key.startsWith("music:")) {
+        continue;
+      }
+
+      if (!instance || typeof instance.sendRoomMessage !== "function") {
+        continue;
+      }
+
+      const roomName = String(key.replace(/^music:/i, "")).trim().toLowerCase();
+
+      if (!roomName) {
+        continue;
+      }
+
+      instance.sendRoomMessage(text);
+
+      sentRooms.add(roomName);
+      musicCount += 1;
+    }
+
+    /*
+      Second priority: Controller bots
+      Only rooms that did NOT receive message from music bot
+    */
+    for (const [key, instance] of this.registry.connections.entries()) {
+      if (!key.startsWith(`${BOT_TYPES.CONTROLLER}:`)) {
+        continue;
+      }
+
+      if (!instance || typeof instance.sendRoomMessage !== "function") {
+        continue;
+      }
+
+      const parts = String(key).split(":");
+
+      /*
+        Expected key from ConnectionRegistry:
+        controller:roomName:username
+      */
+      const roomName = String(parts[1] || "").trim().toLowerCase();
+
+      if (!roomName) {
+        continue;
+      }
+
+      if (sentRooms.has(roomName)) {
+        continue;
+      }
+
+      instance.sendRoomMessage(text);
+
+      sentRooms.add(roomName);
+      controllerCount += 1;
+    }
+
+    return {
+      sent: sentRooms.size,
+      music: musicCount,
+      controller: controllerCount,
+    };
+  }
   /* =====================================================
      Stop Runtime
   ===================================================== */

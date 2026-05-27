@@ -212,30 +212,42 @@ if (lowerRaw.startsWith("تشغيل ")) {
     hasPrefix: false,
   };
 }
+/*
+  .so song name
+  .sh song name
+  .ps song name
 
-if (lowerRaw === ".so") {
+  تعمل مثل تشغيل تماماً
+  لكن ترسل في كل الغرف المتصلة:
+  - لو بوت الموسيقى موجود في الغرفة يرسل هو
+  - لو غير موجود يرسل بوت التحكم
+*/
+if (
+  lowerRaw.startsWith(".so ") ||
+  lowerRaw.startsWith(".sh ") ||
+  lowerRaw.startsWith(".ps ")
+) {
+  const commandText = lowerRaw.slice(0, 3);
+  const songName = raw.slice(3).trim();
+
+  if (!songName) {
+    return null;
+  }
+
+  let command = "song_broadcast";
+
+  if (commandText === ".sh") {
+    command = "song_here";
+  }
+
+  if (commandText === ".ps") {
+    command = "song_private";
+  }
+
   return {
     raw,
-    command: "song_broadcast",
-    args: [],
-    hasPrefix: false,
-  };
-}
-
-if (lowerRaw === ".sh") {
-  return {
-    raw,
-    command: "song_here",
-    args: [],
-    hasPrefix: false,
-  };
-}
-
-if (lowerRaw === ".ps") {
-  return {
-    raw,
-    command: "song_private",
-    args: [],
+    command,
+    args: [songName],
     hasPrefix: false,
   };
 }

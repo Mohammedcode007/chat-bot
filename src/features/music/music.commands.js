@@ -75,33 +75,53 @@ function getSongUrlFromResult(result) {
 function formatSongDetails(song) {
   return [
     "🎵 Song ready",
+    "",
     song.songName,
+    "",
     `${song.requestedBy}@${song.roomName}`,
+    "",
+    song.url || "",
+    "",
     `like@${song.id}`,
+    "",
     `com@${song.id}@msg`,
-  ].join("\n");
+  ]
+    .filter((v) => v !== null && v !== undefined)
+    .join("\n");
 }
 
-function formatSongBroadcast(song) {
-  return [
-    "🎵 Song",
-    song.songName,
-    `${song.requestedBy}@${song.roomName}`,
-    `like@${song.id}`,
-    `com@${song.id}@msg`,
-  ].join("\n");
-}
+function sendRoomTextSafe(socket, text) {
+  if (!socket || !text) return false;
 
-function sendMusicMessage({ socket, runtime, text }) {
-  if (!text) return false;
-
-  if (runtime && typeof runtime.broadcastMusicMessage === "function") {
-    runtime.broadcastMusicMessage(text);
+  if (typeof socket.sendRoomMessage === "function") {
+    socket.sendRoomMessage(text);
     return true;
   }
 
-  socket.sendRoomMessage(text);
-  return true;
+  if (typeof socket.send === "function") {
+    socket.send(
+      JSON.stringify({
+        handler: "chat_message",
+        id: Date.now().toString(),
+        body: text,
+        type: "text",
+      })
+    );
+    return true;
+  }
+
+  return false;
+}
+
+function sendRoomAudioSafe(socket, url) {
+  if (!socket || !url) return false;
+
+  if (typeof socket.sendRoomAudioUrl === "function") {
+    socket.sendRoomAudioUrl(url);
+    return true;
+  }
+
+  return sendRoomTextSafe(socket, url);
 }
 
 function sendPrivateSafe(socket, to, text) {
@@ -138,34 +158,169 @@ function sendPrivateSafe(socket, to, text) {
   return sent;
 }
 
-async function handlePlaySong(context) {
-  const { bot, sender, socket, text, parsed, runtime } = context;
+/*
+  استخراج اسم الغرفة من مفتاح music.
+  المفتاح عندك في BotRuntime يكون:
+  music:roomName
+*/
+function getMusicRoomFromKey(key) {
+  return String(key || "")
+    .replace(/^music:/i, "")
+    .trim();
+}
 
-  const songName = parsed.args.join(" ").trim();
+/*
+  استخراج اسم الغرفة من مفتاح controller.
+  المفتاح غالبًا يكون:
+  controller:roomName:username
 
-  if (!songName) {
-    socket.sendRoomMessage("Song name?");
-    return;
+  ولو ConnectionRegistry عندك يستخدم فاصل مختلف، عدّل هذه الدالة فقط.
+*/
+function getControllerRoomFromKey(key) {
+  const raw = String(key || "").trim();
+
+  if (!raw) return "";
+
+  const parts = raw.split(":");
+
+  if (parts.length >= 2) {
+    return String(parts[1] || "").trim();
   }
 
-  socket.sendRoomMessage(`Loading: ${songName}`);
+  return "";
+}
 
-  const result = await buildMusicReply(text || `تشغيل ${songName}`, {
+function normalizeRoomName(roomName) {
+  return String(roomName || "").trim().toLowerCase();
+}
+
+function isMusicKey(key) {
+  return String(key || "").toLowerCase().startsWith("music:");
+}
+
+function isControllerKey(key) {
+  const value = String(key || "").toLowerCase();
+
+  return (
+    value.startsWith("controller:") ||
+    value.startsWith("control:") ||
+    value.startsWith("bot_controller:")
+  );
+}
+
+/*
+  هذه أهم دالة في الملف.
+
+  المطلوب:
+  - ترسل في كل الغرف.
+  - لو يوجد MusicBot في الغرفة، يرسل هو.
+  - لو لا يوجد MusicBot، يرسل ControllerBot.
+  - تمنع التكرار في نفس الغرفة.
+*/
+function getBroadcastTargets(runtime, currentContext = {}) {
+  const targetsByRoom = new Map();
+
+  const connections =
+    runtime &&
+    runtime.registry &&
+    runtime.registry.connections instanceof Map
+      ? runtime.registry.connections
+      : null;
+
+  if (connections) {
+    /*
+      First priority: Music bots
+    */
+    for (const [key, instance] of connections.entries()) {
+      if (!isMusicKey(key)) continue;
+
+      if (!instance || typeof instance.sendRoomMessage !== "function") {
+        continue;
+      }
+
+      const roomName = getMusicRoomFromKey(key);
+      const normalizedRoomName = normalizeRoomName(roomName);
+
+      if (!normalizedRoomName) continue;
+
+      targetsByRoom.set(normalizedRoomName, {
+        type: "music",
+        roomName,
+        socket: instance,
+      });
+    }
+
+    /*
+      Second priority: Controller bots
+      يضاف فقط لو نفس الغرفة لا يوجد بها MusicBot
+    */
+    for (const [key, instance] of connections.entries()) {
+      if (!isControllerKey(key)) continue;
+
+      if (!instance || typeof instance.sendRoomMessage !== "function") {
+        continue;
+      }
+
+      const roomName =
+        getControllerRoomFromKey(key) ||
+        instance?.bot?.roomName ||
+        instance?.roomName ||
+        "";
+
+      const normalizedRoomName = normalizeRoomName(roomName);
+
+      if (!normalizedRoomName) continue;
+
+      if (targetsByRoom.has(normalizedRoomName)) {
+        continue;
+      }
+
+      targetsByRoom.set(normalizedRoomName, {
+        type: "controller",
+        roomName,
+        socket: instance,
+      });
+    }
+  }
+
+  /*
+    حماية:
+    لو لم نستطع قراءة registry، لا نفشل الأمر.
+    نرسل من البوت الحالي فقط.
+  */
+  if (
+    targetsByRoom.size === 0 &&
+    currentContext &&
+    currentContext.socket &&
+    typeof currentContext.socket.sendRoomMessage === "function"
+  ) {
+    const roomName =
+      currentContext?.bot?.roomName ||
+      currentContext?.bot?.room ||
+      "current-room";
+
+    targetsByRoom.set(normalizeRoomName(roomName), {
+      type: "current",
+      roomName,
+      socket: currentContext.socket,
+    });
+  }
+
+  return Array.from(targetsByRoom.values());
+}
+
+async function prepareSong({ songName, sender, roomName }) {
+  const result = await buildMusicReply(`تشغيل ${songName}`, {
     requestedBy: sender,
-    roomName: bot.roomName,
+    roomName,
   });
 
-  if (!result || !result.handled) {
-    socket.sendRoomMessage("Song failed.");
-    return;
+  if (!result || !result.handled || result.success === false) {
+    return {
+      ok: false,
+      error: "Song failed.",
+    };
   }
-
-  if (result.success === false) {
-    socket.sendRoomMessage("Song failed.");
-    return;
-  }
-
-  const senderName = getSenderName(sender);
 
   const songTitle =
     (result.meta && result.meta.youtubeTitle) ||
@@ -175,48 +330,142 @@ async function handlePlaySong(context) {
 
   const songUrl = getSongUrlFromResult(result);
 
+  return {
+    ok: true,
+    title: songTitle,
+    url: songUrl,
+  };
+}
+
+/*
+  أمر تشغيل
+  يرسل في الغرفة الحالية فقط.
+*/
+async function handlePlaySong(context) {
+  const { bot, sender, socket, parsed } = context;
+
+  const songName = parsed.args.join(" ").trim();
+
+  if (!songName) {
+    sendRoomTextSafe(socket, "Song name?");
+    return;
+  }
+
+  sendRoomTextSafe(socket, `Loading: ${songName}`);
+
+  const senderName = getSenderName(sender);
+
+  const prepared = await prepareSong({
+    songName,
+    sender,
+    roomName: bot.roomName,
+  });
+
+  if (!prepared.ok) {
+    sendRoomTextSafe(socket, prepared.error || "Song failed.");
+    return;
+  }
+
   const song = songLikesRepository.createSong({
-    songName: songTitle,
+    songName: prepared.title,
     roomName: bot.roomName,
     requestedBy: senderName,
-    url: songUrl,
+    url: prepared.url,
   });
 
-  sendMusicMessage({
-    socket,
-    runtime,
-    text: formatSongDetails(song),
-  });
+  sendRoomTextSafe(socket, formatSongDetails(song));
 
-  if (songUrl) {
-    if (socket && typeof socket.sendRoomAudioUrl === "function") {
-      socket.sendRoomAudioUrl(songUrl);
-    } else {
-      socket.sendRoomMessage(songUrl);
-    }
+  if (prepared.url) {
+    sendRoomAudioSafe(socket, prepared.url);
   } else {
-    socket.sendRoomMessage("No audio URL.");
+    sendRoomTextSafe(socket, "No audio URL.");
   }
 }
 
-function handleSongShortcut(context) {
+/*
+  أوامر:
+  .ps
+  .so
+  .sh
+
+  تعمل مثل تشغيل، لكن ترسل في كل الغرف.
+*/
+async function handleSongGlobal(context) {
   const { bot, sender, socket, parsed, runtime } = context;
 
-  const fakeSongName = parsed.args.join(" ").trim() || "No name";
+  const songName = parsed.args.join(" ").trim();
+
+  if (!songName) {
+    sendRoomTextSafe(socket, "Song name?");
+    return;
+  }
+
+  sendRoomTextSafe(socket, `Loading: ${songName}`);
+
   const senderName = getSenderName(sender);
 
-  const song = songLikesRepository.createSong({
-    songName: fakeSongName,
+  const prepared = await prepareSong({
+    songName,
+    sender,
     roomName: bot.roomName,
-    requestedBy: senderName,
-    url: "",
   });
 
-  sendMusicMessage({
-    socket,
-    runtime,
-    text: formatSongBroadcast(song),
+  if (!prepared.ok) {
+    sendRoomTextSafe(socket, prepared.error || "Song failed.");
+    return;
+  }
+
+  const targets = getBroadcastTargets(runtime, context);
+
+  if (!targets.length) {
+    sendRoomTextSafe(socket, "No connected rooms.");
+    return;
+  }
+
+  let sentCount = 0;
+  let musicCount = 0;
+  let controllerCount = 0;
+
+  for (const target of targets) {
+    const targetRoomName = target.roomName || bot.roomName;
+
+    const song = songLikesRepository.createSong({
+      songName: prepared.title,
+      roomName: targetRoomName,
+      requestedBy: senderName,
+      url: prepared.url,
+    });
+
+    const text = formatSongDetails(song);
+
+    const sentText = sendRoomTextSafe(target.socket, text);
+
+    if (prepared.url) {
+      sendRoomAudioSafe(target.socket, prepared.url);
+    }
+
+    if (sentText) {
+      sentCount += 1;
+
+      if (target.type === "music") {
+        musicCount += 1;
+      }
+
+      if (target.type === "controller") {
+        controllerCount += 1;
+      }
+    }
+  }
+
+  console.log("🎵 [SONG_GLOBAL_DONE]", {
+    command: parsed.command,
+    songName,
+    sentCount,
+    musicCount,
+    controllerCount,
   });
+
+  sendRoomTextSafe(socket, `Sent: ${sentCount}`);
 }
 
 function handleLikeSong(context) {
@@ -225,7 +474,7 @@ function handleLikeSong(context) {
   const songId = parsed.args[0];
 
   if (!songId) {
-    socket.sendRoomMessage("Use: like@id");
+    sendRoomTextSafe(socket, "Use: like@id");
     return;
   }
 
@@ -234,16 +483,19 @@ function handleLikeSong(context) {
   const result = songLikesRepository.likeSong(songId, senderName);
 
   if (!result.ok && result.reason === "not_found") {
-    socket.sendRoomMessage("Not found.");
+    sendRoomTextSafe(socket, "Not found.");
     return;
   }
 
   if (!result.ok && result.reason === "already_liked") {
-    socket.sendRoomMessage("Already liked.");
+    sendRoomTextSafe(socket, "Already liked.");
     return;
   }
 
-  socket.sendRoomMessage(`Liked\n${result.song.songName}\nLikes: ${result.song.likesCount}`);
+  sendRoomTextSafe(
+    socket,
+    `Liked\n${result.song.songName}\nLikes: ${result.song.likesCount}`
+  );
 
   if (result.song.requestedBy) {
     sendPrivateSafe(
@@ -266,7 +518,7 @@ function handleCommentSong(context) {
   const comment = parsed.args.slice(1).join("@").trim();
 
   if (!songId || !comment) {
-    socket.sendRoomMessage("Use: com@id@msg");
+    sendRoomTextSafe(socket, "Use: com@id@msg");
     return;
   }
 
@@ -275,16 +527,16 @@ function handleCommentSong(context) {
   const result = songLikesRepository.commentSong(songId, senderName, comment);
 
   if (!result.ok && result.reason === "not_found") {
-    socket.sendRoomMessage("Not found.");
+    sendRoomTextSafe(socket, "Not found.");
     return;
   }
 
   if (!result.ok && result.reason === "empty_comment") {
-    socket.sendRoomMessage("Empty comment.");
+    sendRoomTextSafe(socket, "Empty comment.");
     return;
   }
 
-  socket.sendRoomMessage("Comment sent.");
+  sendRoomTextSafe(socket, "Comment sent.");
 
   if (result.song.requestedBy) {
     sendPrivateSafe(
@@ -306,15 +558,17 @@ function handleSongLikes(context) {
   const top = songLikesRepository.getTopSongs(10);
 
   if (!top.length) {
-    socket.sendRoomMessage("No likes.");
+    sendRoomTextSafe(socket, "No likes.");
     return;
   }
 
   const lines = top.map((song, index) => {
-    return `${index + 1}. ${song.songName} | ${song.id} | ${song.likesCount || 0} likes | ${song.commentsCount || 0} comments`;
+    return `${index + 1}. ${song.songName} | ${song.id} | ${
+      song.likesCount || 0
+    } likes | ${song.commentsCount || 0} comments`;
   });
 
-  socket.sendRoomMessage(lines.join("\n"));
+  sendRoomTextSafe(socket, lines.join("\n"));
 }
 
 async function handleMusicCommand(context) {
@@ -330,7 +584,7 @@ async function handleMusicCommand(context) {
     parsed.command === "song_here" ||
     parsed.command === "song_private"
   ) {
-    handleSongShortcut(context);
+    await handleSongGlobal(context);
     return true;
   }
 
