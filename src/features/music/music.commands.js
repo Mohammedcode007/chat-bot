@@ -81,8 +81,10 @@ function cleanShortSongName(value) {
 }
 
 function formatSongDetails(song) {
+  const songName = String(song.songName || "Unknown song").trim();
+
   const lines = [
-    cleanShortSongName(song.songName),
+    songName,
     "",
     `${song.requestedBy}@${song.roomName}`,
   ];
