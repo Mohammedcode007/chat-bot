@@ -116,12 +116,49 @@ function sendRoomTextSafe(socket, text) {
 function sendRoomAudioSafe(socket, url) {
   if (!socket || !url) return false;
 
+  /*
+    الحالة الأولى:
+    socket نفسه فيه دالة إرسال الصوت
+  */
   if (typeof socket.sendRoomAudioUrl === "function") {
     socket.sendRoomAudioUrl(url);
     return true;
   }
 
-  return sendRoomTextSafe(socket, url);
+  /*
+    الحالة الثانية:
+    أحيانًا target.socket يكون MusicBot أو ControllerBot instance
+    والـ socket الحقيقي داخله.
+  */
+  if (socket.socket && typeof socket.socket.sendRoomAudioUrl === "function") {
+    socket.socket.sendRoomAudioUrl(url);
+    return true;
+  }
+
+  if (socket.client && typeof socket.client.sendRoomAudioUrl === "function") {
+    socket.client.sendRoomAudioUrl(url);
+    return true;
+  }
+
+  if (socket.ws && typeof socket.ws.sendRoomAudioUrl === "function") {
+    socket.ws.sendRoomAudioUrl(url);
+    return true;
+  }
+
+  /*
+    مهم:
+    لا ترسل الرابط كنص نهائيًا.
+    لو وصلنا هنا، فهذا يعني أن البوت الذي يرسل لا يملك دالة sendRoomAudioUrl.
+  */
+  console.log("❌ [AUDIO_SEND_FAILED] sendRoomAudioUrl not found", {
+    url,
+    socketKeys: socket ? Object.keys(socket) : [],
+    innerSocketKeys: socket && socket.socket ? Object.keys(socket.socket) : [],
+    clientKeys: socket && socket.client ? Object.keys(socket.client) : [],
+    wsKeys: socket && socket.ws ? Object.keys(socket.ws) : [],
+  });
+
+  return false;
 }
 
 function sendPrivateSafe(socket, to, text) {
@@ -440,9 +477,17 @@ async function handleSongGlobal(context) {
 
     const sentText = sendRoomTextSafe(target.socket, text);
 
-    if (prepared.url) {
-      sendRoomAudioSafe(target.socket, prepared.url);
-    }
+  if (prepared.url) {
+  const audioSent = sendRoomAudioSafe(target.socket, prepared.url);
+
+  if (!audioSent) {
+    console.log("❌ [GLOBAL_AUDIO_NOT_SENT]", {
+      roomName: target.roomName,
+      type: target.type,
+      url: prepared.url,
+    });
+  }
+}
 
     if (sentText) {
       sentCount += 1;
