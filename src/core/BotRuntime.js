@@ -238,7 +238,10 @@ class BotRuntime {
 
     return true;
   }
-
+hasControllerBot(roomName) {
+  const bot = this.repository.getControllerBotByRoom(roomName);
+  return Boolean(bot);
+}
   hasMusicBot(roomName) {
     const key = this.makeMusicKey(roomName);
 

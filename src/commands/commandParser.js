@@ -48,7 +48,24 @@ function parseCommand(text) {
       hasPrefix: false,
     };
   }
+/*
+  User lookup
+  is@username
+*/
+if (lowerRaw.startsWith("is@")) {
+  const username = raw.slice(3).trim();
 
+  if (!username) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "user_lookup",
+    args: [username],
+    hasPrefix: false,
+  };
+}
   /*
     VIP
     vip@username

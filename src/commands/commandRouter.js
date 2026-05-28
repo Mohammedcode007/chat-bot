@@ -10,7 +10,10 @@ const {
   handleStatus,
   requirePermission,
 } = require("./controllerCommands");
-
+const {
+  isUserLookupCommand,
+  handleUserLookupCommand,
+} = require("../features/userLookup/userLookup.commands");
 const {
   createSession,
   nextPage,
@@ -131,7 +134,10 @@ function handleCommand(context) {
   context.parsed = parsed;
 
   const { command } = parsed;
-
+if (isUserLookupCommand(command)) {
+  handleUserLookupCommand(context);
+  return;
+}
   /* =====================================================
      Help pages
   ===================================================== */

@@ -219,7 +219,14 @@
 // };
 
 
+const fs = require("fs");
+const path = require("path");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
+
 const { downloadAudioToLocal } = require("./audioDownload.service");
+
+const execFileAsync = promisify(execFile);
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -260,6 +267,131 @@ function makeSafeFileName(value) {
     .slice(0, 120);
 }
 
+function fileExists(filePath) {
+  try {
+    return fs.existsSync(filePath);
+  } catch {
+    return false;
+  }
+}
+
+/*
+  جلب أول نتيجة من يوتيوب عن طريق yt-dlp بدون YouTube API.
+  هذه الدالة ترجع اسم الفيديو الكامل الحقيقي + رابط الفيديو.
+*/
+async function searchYoutubeFirstResult(query) {
+  const q = normalizeText(query);
+
+  if (!q) {
+    return {
+      ok: false,
+      error: "Empty search query",
+    };
+  }
+
+  const cookiesPath =
+    process.env.YT_DLP_COOKIES_PATH ||
+    process.env.YTDLP_COOKIES_PATH ||
+    path.join(process.cwd(), "cookies.txt");
+
+  const env = {
+    ...process.env,
+    PATH: `/root/.deno/bin:${process.env.PATH || ""}`,
+  };
+
+  const args = [
+    "--cookies",
+    cookiesPath,
+
+    "--js-runtimes",
+    "deno",
+
+    "--dump-single-json",
+    "--skip-download",
+    "--no-playlist",
+
+    `ytsearch1:${q}`,
+  ];
+
+  /*
+    لو cookies.txt غير موجود، نجرب بدون cookies بدل ما نفشل البحث بالكامل.
+  */
+  const finalArgs = fileExists(cookiesPath)
+    ? args
+    : args.filter((item, index) => {
+        return item !== "--cookies" && args[index - 1] !== "--cookies";
+      });
+
+  try {
+    console.log("🔎 yt-dlp search query:", q);
+    console.log("🔎 yt-dlp search args:", finalArgs);
+
+    const { stdout, stderr } = await execFileAsync("yt-dlp", finalArgs, {
+      env,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024 * 20,
+      timeout: Number(process.env.YT_DLP_SEARCH_TIMEOUT_MS || 60000),
+    });
+
+    if (stderr) {
+      console.log("🔎 yt-dlp search stderr:", stderr);
+    }
+
+    const data = JSON.parse(String(stdout || "{}"));
+
+    /*
+      أحيانًا ytsearch يرجع entries
+    */
+    const item =
+      Array.isArray(data.entries) && data.entries.length
+        ? data.entries[0]
+        : data;
+
+    if (!item) {
+      return {
+        ok: false,
+        error: "No YouTube results found",
+      };
+    }
+
+    const title = String(item.title || q).trim();
+
+    const youtubeUrl =
+      item.webpage_url ||
+      item.original_url ||
+      (item.id ? `https://www.youtube.com/watch?v=${item.id}` : "");
+
+    if (!youtubeUrl) {
+      return {
+        ok: false,
+        error: "YouTube URL not found",
+      };
+    }
+
+    return {
+      ok: true,
+      title,
+      youtubeUrl,
+      videoId: item.id || "",
+      channelTitle: item.channel || item.uploader || "",
+      thumbnail:
+        item.thumbnail ||
+        (Array.isArray(item.thumbnails) && item.thumbnails.length
+          ? item.thumbnails[item.thumbnails.length - 1].url
+          : ""),
+      duration: item.duration || 0,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        (error && error.stderr) ||
+        (error && error.message) ||
+        "yt-dlp search failed",
+    };
+  }
+}
+
 async function buildMusicReply(rawText, extra = {}) {
   const parsed = parsePlayCommand(rawText);
 
@@ -280,16 +412,33 @@ async function buildMusicReply(rawText, extra = {}) {
     };
   }
 
-  try {
-    /*
-      الاستغناء عن YouTube Data API.
-      yt-dlp سيبحث في يوتيوب عن أول نتيجة بنفسه.
-    */
-    const ytSearchQuery = `ytsearch1:${parsed.query}`;
-    const safeTitle = makeSafeFileName(parsed.query || "audio");
+  const yt = await searchYoutubeFirstResult(parsed.query);
 
+  if (!yt.ok || !yt.youtubeUrl) {
+    return {
+      handled: true,
+      success: false,
+      text:
+        parsed.lang === "ar"
+          ? `تعذر العثور على الأغنية: ${yt.error || "حدث خطأ"}`
+          : `Failed to find song: ${yt.error || "Unknown error"}`,
+      meta: {
+        action: "music_search_failed",
+        query: parsed.query,
+        requestedBy: extra.requestedBy || "",
+        roomName: extra.roomName || "",
+      },
+    };
+  }
+
+  try {
+    const safeTitle = makeSafeFileName(yt.title || parsed.query || "audio");
+
+    /*
+      هنا نحمل من رابط الفيديو الحقيقي، وليس من YouTube API.
+    */
     const saved = await downloadAudioToLocal({
-      sourceUrl: ytSearchQuery,
+      sourceUrl: yt.youtubeUrl,
       filename: `${safeTitle}.mp3`,
     });
 
@@ -298,7 +447,7 @@ async function buildMusicReply(rawText, extra = {}) {
       success: true,
       text: [
         "🎵 تم تجهيز الأغنية",
-        `الاسم: ${parsed.query}`,
+        `الاسم: ${yt.title || parsed.query}`,
         `بواسطة: ${extra.requestedBy || "unknown"}`,
         `الغرفة: ${extra.roomName || "unknown"}`,
         `الرابط: ${saved.publicUrl}`,
@@ -308,11 +457,12 @@ async function buildMusicReply(rawText, extra = {}) {
         query: parsed.query,
 
         /*
-          هنا نخزن اسم البحث نفسه كعنوان.
-          لأننا لم نعد نستخدم YouTube API لجلب title.
+          هذا هو اسم الفيديو الكامل الحقيقي من yt-dlp.
         */
-        youtubeTitle: parsed.query,
-        youtubeUrl: ytSearchQuery,
+        youtubeTitle: yt.title || parsed.query,
+        youtubeUrl: yt.youtubeUrl,
+        thumbnail: yt.thumbnail,
+        channelTitle: yt.channelTitle,
 
         mp3Url: saved.publicUrl,
         filename: saved.filename,
@@ -330,15 +480,13 @@ async function buildMusicReply(rawText, extra = {}) {
       success: false,
       text:
         parsed.lang === "ar"
-          ? `فشل تجهيز الأغنية: ${
-              error && error.message ? error.message : "حدث خطأ"
-            }`
-          : `Failed to prepare song: ${
-              error && error.message ? error.message : "Unknown error"
-            }`,
+          ? `تم العثور على: ${yt.title}\nلكن فشل تجهيز ملف الصوت`
+          : `Found: ${yt.title}\nBut failed to prepare the audio file`,
       meta: {
         action: "music_prepare_failed",
         query: parsed.query,
+        youtubeTitle: yt.title,
+        youtubeUrl: yt.youtubeUrl,
         error: error && error.message ? error.message : "unknown_error",
       },
     };
@@ -348,5 +496,6 @@ async function buildMusicReply(rawText, extra = {}) {
 module.exports = {
   normalizeText,
   parsePlayCommand,
+  searchYoutubeFirstResult,
   buildMusicReply,
 };

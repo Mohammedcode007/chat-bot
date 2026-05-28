@@ -1,6 +1,9 @@
 const { SocketClient } = require("../../core/SocketClient");
 const { ReconnectManager } = require("../../core/ReconnectManager");
-
+const {
+  isUserLookupCommand,
+  handleUserLookupCommand,
+} = require("../../features/userLookup/userLookup.commands");
 const {
   MUSIC_BOT_USERNAME,
   MUSIC_BOT_PASSWORD,
@@ -136,7 +139,31 @@ class MusicBot {
     const parsed = parseCommand(incoming.text);
 
     if (!parsed) return;
+if (isUserLookupCommand(parsed.command)) {
+  if (
+    this.runtime &&
+    typeof this.runtime.hasControllerBot === "function" &&
+    this.runtime.hasControllerBot(this.roomName)
+  ) {
+    return;
+  }
 
+  const fakeBot = {
+    username: this.socket.username,
+    roomName: this.roomName,
+  };
+
+  handleUserLookupCommand({
+    bot: fakeBot,
+    sender: incoming.sender,
+    text: incoming.text,
+    parsed,
+    socket: this.socket,
+    runtime: this.runtime,
+  });
+
+  return;
+}
     const fakeBot = {
       username: MUSIC_BOT_USERNAME,
       roomName: this.roomName,
