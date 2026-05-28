@@ -10,8 +10,10 @@ function isUserLookupCommand(command) {
   return command === "user_lookup";
 }
 
-function getRoomNameFromRoomData(roomDataKey) {
-  return String(roomDataKey || "").trim();
+function normalizeForSearch(value) {
+  return normalizeUsername(value)
+    .replace(/\s+/g, "")
+    .replace(/^@+/, "");
 }
 
 function getCurrentUsersFromRoomData(roomData) {
@@ -26,33 +28,81 @@ function getCurrentUsersFromRoomData(roomData) {
   return [];
 }
 
-function findUserRooms(username) {
-  const target = normalizeUsername(username);
+function getUserDisplayName(user) {
+  return String(
+    user.username ||
+      user.name ||
+      user.user ||
+      user.from ||
+      ""
+  ).trim();
+}
+
+function getUserId(user) {
+  return String(
+    user.userId ||
+      user.user_id ||
+      user.id ||
+      ""
+  ).trim();
+}
+
+function userMatches(user, searchText) {
+  const target = normalizeForSearch(searchText);
+
+  if (!target) {
+    return false;
+  }
+
+  const username = normalizeForSearch(getUserDisplayName(user));
+  const userId = normalizeForSearch(getUserId(user));
+
+  return (
+    username === target ||
+    username.includes(target) ||
+    target.includes(username) ||
+    userId === target
+  );
+}
+
+function findUserRoomsAndUser(searchText) {
   const data = roomUsersRepository.getAll();
 
   const roomsMap = new Map();
+  let foundRealUser = null;
 
   Object.entries(data || {}).forEach(([roomName, roomData]) => {
     const users = getCurrentUsersFromRoomData(roomData);
 
-    const found = users.some((user) => {
-      return normalizeUsername(user.username || user.name || user.user) === target;
-    });
+    const foundUser = users.find((user) => userMatches(user, searchText));
 
-    if (found) {
-      const cleanRoomName = getRoomNameFromRoomData(roomName);
+    if (!foundUser) {
+      return;
+    }
 
-      if (cleanRoomName) {
-        roomsMap.set(normalizeUsername(cleanRoomName), cleanRoomName);
-      }
+    const cleanRoomName = String(roomName || "").trim();
+
+    if (cleanRoomName) {
+      roomsMap.set(normalizeUsername(cleanRoomName), cleanRoomName);
+    }
+
+    /*
+      نحفظ أول نسخة حقيقية من المستخدم من roomUsers.json
+      حتى نرسل الخاص للاسم الكامل الصحيح.
+    */
+    if (!foundRealUser) {
+      foundRealUser = foundUser;
     }
   });
 
-  return Array.from(roomsMap.values());
+  return {
+    rooms: Array.from(roomsMap.values()),
+    user: foundRealUser,
+  };
 }
 
 function isVipAnywhere(username) {
-  const target = normalizeUsername(username);
+  const target = normalizeForSearch(username);
   const data = vipUsersRepository.getAll();
 
   return Object.values(data || {}).some((roomVipList) => {
@@ -61,16 +111,16 @@ function isVipAnywhere(username) {
     }
 
     return roomVipList.some((item) => {
-      return normalizeUsername(item.username) === target;
+      return normalizeForSearch(item.username) === target;
     });
   });
 }
 
-function formatLookupResult(username, rooms) {
+function formatLookupResult(searchText, rooms, realUsername) {
   if (!rooms.length) {
     return [
       "User lookup result",
-      `User: ${username}`,
+      `Search: ${searchText}`,
       "Status: not found in active rooms.",
     ].join("\n");
   }
@@ -81,65 +131,123 @@ function formatLookupResult(username, rooms) {
 
   return [
     "User lookup result",
-    `User: ${username}`,
+    `User: ${realUsername || searchText}`,
     `Rooms found: ${rooms.length}`,
     "",
     ...lines,
   ].join("\n");
 }
 
-function notifyTargetUser({ socket, targetUsername, sender, isVip }) {
-  if (!targetUsername) {
-    return;
-  }
-
-  if (normalizeUsername(targetUsername) === normalizeUsername(sender)) {
-    return;
-  }
-
+function buildNotifyText({ isVip, sender }) {
   if (isVip) {
-    socket.sendPrivate(
-      targetUsername,
-      [
-        "Search notification",
-        `Someone searched for you.`,
-        `Searched by: ${sender}`,
-      ].join("\n")
-    );
-
-    return;
-  }
-
-  socket.sendPrivate(
-    targetUsername,
-    [
+    return [
       "Search notification",
       "Someone searched for you.",
-      `To know who searched for you, message the bot owner: ${BOT_OWNER_USERNAME || "bot owner"}`,
-    ].join("\n")
-  );
+      `Searched by: ${sender}`,
+    ].join("\n");
+  }
+
+  return [
+    "Search notification",
+    "Someone searched for you.",
+    `To know who searched for you, message the bot owner: ${
+      BOT_OWNER_USERNAME || "bot owner"
+    }`,
+  ].join("\n");
+}
+
+function notifyTargetUser({ socket, targetUser, sender, isVip }) {
+  const realUsername = getUserDisplayName(targetUser);
+
+  if (!realUsername) {
+    console.log("⚠️ [LOOKUP_PRIVATE_SKIP]", {
+      reason: "missing_real_username",
+      targetUser,
+      sender,
+    });
+
+    return false;
+  }
+
+  if (normalizeUsername(realUsername) === normalizeUsername(sender)) {
+    console.log("⚠️ [LOOKUP_PRIVATE_SKIP]", {
+      reason: "sender_is_target",
+      realUsername,
+      sender,
+    });
+
+    return false;
+  }
+
+  const text = buildNotifyText({
+    isVip,
+    sender,
+  });
+
+  console.log("📤 [LOOKUP_PRIVATE_TRY]", {
+    to: realUsername,
+    sender,
+    isVip,
+    text,
+  });
+
+  const sent = socket.sendPrivate(realUsername, text);
+
+  console.log("📤 [LOOKUP_PRIVATE_SENT]", {
+    to: realUsername,
+    sent,
+  });
+
+  return sent;
 }
 
 function handleUserLookupCommand(context) {
   const { sender, socket, parsed } = context;
 
-  const username = parsed.args[0];
+  const searchText = parsed.args[0];
 
-  if (!username) {
+  if (!searchText) {
     socket.sendRoomMessage("Use: is@username");
     return;
   }
 
-  const rooms = findUserRooms(username);
-  const targetIsVip = isVipAnywhere(username);
+  const result = findUserRoomsAndUser(searchText);
 
-  socket.sendRoomMessage(formatLookupResult(username, rooms));
+  const realUsername = result.user ? getUserDisplayName(result.user) : "";
 
-  notifyTargetUser({
+  socket.sendRoomMessage(
+    formatLookupResult(searchText, result.rooms, realUsername)
+  );
+
+  /*
+    لو لم يتم العثور على المستخدم في roomUsers.json
+    لا نرسل خاص لأنه لا يوجد اسم حقيقي كامل.
+  */
+  if (!result.user || !realUsername) {
+    console.log("⚠️ [USER_LOOKUP_NOTIFY_SKIPPED]", {
+      reason: "target_not_found_or_missing_real_username",
+      searchText,
+      sender,
+    });
+
+    return;
+  }
+
+  const targetIsVip = isVipAnywhere(realUsername);
+
+  const sent = notifyTargetUser({
     socket,
-    targetUsername: username,
+    targetUser: result.user,
     sender,
     isVip: targetIsVip,
+  });
+
+  console.log("📩 [USER_LOOKUP_NOTIFY_RESULT]", {
+    searchText,
+    realUsername,
+    sender,
+    isVip: targetIsVip,
+    sent,
   });
 }
 
