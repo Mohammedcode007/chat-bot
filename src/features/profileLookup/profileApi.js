@@ -4,27 +4,49 @@ const {
 } = require("../../config/env");
 
 /*
-  ضع هنا كود fetchUserProfile الحقيقي الموجود عندك في الملف القديم.
+  هذا الملف لا ينشئ منطق جديد.
+  هو فقط يستدعي دالة fetchUserProfile الأصلية التي كانت تعمل في مشروعك القديم.
 
-  في الكود الرسمي الذي أرسلته كان الاستخدام هكذا:
+  مهم:
+  يجب أن يكون عندك ملف:
+  src/commands/profileCommand.js
 
-  fetchUserProfile({
-    username: 'hb_bot',
-    password: '12345678',
-    targetId: targetId,
-  })
-
-  لذلك هنا جعلنا username/password من .env بدل الهارد كود.
+  ويكون داخله:
+  module.exports = {
+    handleProfileCommand,
+    fetchUserProfile,
+  };
 */
 
+const {
+  fetchUserProfile: fetchUserProfileOriginal,
+} = require("../../commands/profileCommand");
+
 async function fetchUserProfile({ targetId }) {
-  /*
-    استبدل هذا الخطأ بالكود الحقيقي من ملفك القديم:
-    commands/profileCommand.js
-  */
-  throw new Error(
-    "fetchUserProfile is not implemented. Move it from your old profileCommand.js into profileApi.js"
-  );
+  const username = String(PROFILE_BOT_USERNAME || "").trim();
+  const password = String(PROFILE_BOT_PASSWORD || "").trim();
+
+  if (!username || !password) {
+    throw new Error(
+      "Missing PROFILE_BOT_USERNAME or PROFILE_BOT_PASSWORD in .env"
+    );
+  }
+
+  if (!targetId) {
+    throw new Error("Missing targetId");
+  }
+
+  if (typeof fetchUserProfileOriginal !== "function") {
+    throw new Error(
+      "fetchUserProfileOriginal is not a function. Check ../../commands/profileCommand export."
+    );
+  }
+
+  return fetchUserProfileOriginal({
+    username,
+    password,
+    targetId,
+  });
 }
 
 module.exports = {
