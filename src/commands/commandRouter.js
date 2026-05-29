@@ -234,7 +234,8 @@ return;
 if (
   command === "control_member" ||
   command === "control_kick" ||
-  command === "control_ban"
+  command === "control_ban" ||
+  command === "control_owner"
 ) {
   handleControllerControlCommand(context);
   return;
