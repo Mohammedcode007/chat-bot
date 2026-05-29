@@ -235,12 +235,12 @@ if (
   command === "control_member" ||
   command === "control_kick" ||
   command === "control_ban" ||
-  command === "control_owner"
+  command === "control_owner" ||
+  command === "control_admin"
 ) {
   handleControllerControlCommand(context);
   return;
 }
-
 if (command === "profile_lookup") {
   handleProfileLookupCommand(context);
   return;

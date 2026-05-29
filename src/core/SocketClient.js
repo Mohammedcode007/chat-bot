@@ -672,7 +672,9 @@ class SocketClient {
   sendRoomOwner(username, roomName = this.roomName) {
     return this.sendRoomControlAction("owner", username, roomName);
   }
-
+sendRoomAdmin(username, roomName = this.roomName) {
+  return this.sendRoomControlAction("admin", username, roomName);
+}
   sendRoomMember(username, roomName = this.roomName) {
     return this.sendRoomControlAction("member", username, roomName);
   }

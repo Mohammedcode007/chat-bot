@@ -48,19 +48,20 @@ function parseCommand(text) {
       hasPrefix: false,
     };
   }
-
 /*
   Controller room admin commands
   m@username = member
   k@username = kick
   b@username = ban
   o@username = owner
+  a@username = admin
 */
 if (
   lowerRaw.startsWith("m@") ||
   lowerRaw.startsWith("k@") ||
   lowerRaw.startsWith("b@") ||
-  lowerRaw.startsWith("o@")
+  lowerRaw.startsWith("o@") ||
+  lowerRaw.startsWith("a@")
 ) {
   const actionKey = lowerRaw.slice(0, 1);
   const username = raw.slice(2).trim();
@@ -74,6 +75,7 @@ if (
     k: "control_kick",
     b: "control_ban",
     o: "control_owner",
+    a: "control_admin",
   };
 
   return {

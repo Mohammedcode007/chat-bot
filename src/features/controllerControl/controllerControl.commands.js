@@ -8,7 +8,7 @@ function handleControllerControlCommand(context) {
   const username = getTargetUsername(parsed);
 
   if (!username) {
-    socket.sendRoomMessage("Usage: m@username / k@username / b@username / o@username");
+socket.sendRoomMessage("Usage: m@username / k@username / b@username / o@username / a@username");
     return;
   }
 
@@ -79,7 +79,22 @@ function handleControllerControlCommand(context) {
 
     return;
   }
+if (parsed.command === "control_admin") {
+  if (typeof socket.sendRoomAdmin !== "function") {
+    socket.sendRoomMessage("Admin command is not supported.");
+    return;
+  }
 
+  const sent = socket.sendRoomAdmin(username, bot.roomName);
+
+  if (sent) {
+    socket.sendRoomMessage(`✅ Admin sent: ${username}`);
+  } else {
+    socket.sendRoomMessage(`❌ Admin failed: ${username}`);
+  }
+
+  return;
+}
   socket.sendRoomMessage("Unknown control command.");
 }
 
