@@ -48,6 +48,56 @@ function parseCommand(text) {
       hasPrefix: false,
     };
   }
+  /*
+  Controller room admin commands
+  m@username = member
+  k@username = kick
+  b@username = ban
+*/
+if (
+  lowerRaw.startsWith("m@") ||
+  lowerRaw.startsWith("k@") ||
+  lowerRaw.startsWith("b@")
+) {
+  const actionKey = lowerRaw.slice(0, 1);
+  const username = raw.slice(2).trim();
+
+  if (!username) {
+    return null;
+  }
+
+  const commandMap = {
+    m: "control_member",
+    k: "control_kick",
+    b: "control_ban",
+  };
+
+  return {
+    raw,
+    command: commandMap[actionKey],
+    args: [username],
+    hasPrefix: false,
+  };
+}
+
+/*
+  Profile lookup
+  p@username
+*/
+if (lowerRaw.startsWith("p@")) {
+  const username = raw.slice(2).trim();
+
+  if (!username) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "profile_lookup",
+    args: [username],
+    hasPrefix: false,
+  };
+}
 /*
   User lookup
   is@username

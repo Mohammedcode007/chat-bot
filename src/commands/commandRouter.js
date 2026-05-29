@@ -20,7 +20,13 @@ const {
   getPageItems,
   getPageInfo,
 } = require("./paginationSessions");
+const {
+  handleControllerControlCommand,
+} = require("../features/controllerControl/controllerControl.commands");
 
+const {
+  handleProfileLookupCommand,
+} = require("../features/profileLookup/profileLookup.commands");
 const { RoomUsersRepository } = require("../store/RoomUsersRepository");
 
 const { handleMasterCommand } = require("../features/masters/master.commands");
@@ -225,7 +231,19 @@ return;
   if (!requirePermission(context)) {
     return;
   }
+if (
+  command === "control_member" ||
+  command === "control_kick" ||
+  command === "control_ban"
+) {
+  handleControllerControlCommand(context);
+  return;
+}
 
+if (command === "profile_lookup") {
+  handleProfileLookupCommand(context);
+  return;
+}
   if (command === "nx") {
     handleNextPageCommand(context);
     return;

@@ -591,6 +591,63 @@ class SocketClient {
 
     return this.send(payload);
   }
+    sendRoomControlAction(action, username, roomName = this.roomName) {
+    if (!roomName) {
+      console.log(`⚠️ sendRoomControlAction ignored: missing roomName`);
+      return false;
+    }
+
+    if (!username) {
+      console.log(`⚠️ sendRoomControlAction ignored: missing username`);
+      return false;
+    }
+
+    const payload = {
+      /*
+        ملاحظة:
+        لو السيرفر عندك يستخدم handler مختلف للتحكم في الغرفة
+        غيّر هذه القيمة فقط.
+      */
+      handler: "room_admin",
+
+      /*
+        أضفت أكثر من مفتاح للتوافق مع أغلب سيرفرات الشات:
+        room / name / username / target / action / type
+      */
+      room: String(roomName),
+      name: String(roomName),
+
+      username: String(username),
+      target: String(username),
+
+      action: String(action),
+      type: String(action),
+
+      id: makeId(`room_${action}`),
+    };
+
+    console.log("🛠️ [ROOM_CONTROL_SEND]", {
+      by: this.username,
+      roomName,
+      action,
+      username,
+      payload,
+    });
+
+    return this.send(payload);
+  }
+
+  sendRoomMember(username, roomName = this.roomName) {
+    return this.sendRoomControlAction("member", username, roomName);
+  }
+
+  sendRoomKick(username, roomName = this.roomName) {
+    return this.sendRoomControlAction("kick", username, roomName);
+  }
+
+  sendRoomBan(username, roomName = this.roomName) {
+    return this.sendRoomControlAction("ban", username, roomName);
+  }
 sendPrivate(to, text) {
   if (!to) {
     console.log("⚠️ sendPrivate ignored: missing receiver");

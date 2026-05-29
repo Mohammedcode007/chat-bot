@@ -83,7 +83,40 @@ class ControllerBot {
     this.handleRoomUserJoinOrLeave(data);
     this.handleRoomCommand(data);
   }
+  isSameBotUsername(username) {
+    const a = String(username || "").trim().toLowerCase();
+    const b = String(this.bot.username || "").trim().toLowerCase();
 
+    return a && b && a === b;
+  }
+
+  rejoinRoom(reason = "unknown") {
+    if (this.stopped || !this.socket) {
+      return;
+    }
+
+    console.log("🔁 [CONTROLLER_AUTO_REJOIN]", {
+      username: this.bot.username,
+      room: this.bot.roomName,
+      reason,
+    });
+
+    setTimeout(() => {
+      if (this.stopped || !this.socket) {
+        return;
+      }
+
+      this.socket.joinRoom(this.bot.roomName);
+
+      setTimeout(() => {
+        if (this.stopped || !this.socket) {
+          return;
+        }
+
+        this.socket.updateProfile(makeControllerBotProfile(this.bot));
+      }, 1000);
+    }, 1500);
+  }
   handleLoginSuccess(data) {
     if (
       data.handler === "login_event" &&
@@ -127,41 +160,48 @@ class ControllerBot {
     });
   }
 
-  handleRoomUserJoinOrLeave(data) {
-    const event = extractRoomUserEvent(data);
+handleRoomUserJoinOrLeave(data) {
+  const event = extractRoomUserEvent(data);
 
-    if (!event) {
-      return;
-    }
-
-    const roomName = event.roomName || this.bot.roomName;
-
-    if (event.action === "join") {
-      this.roomUsersRepository.addUser(roomName, {
-        username: event.username,
-        role: event.role || "",
-        userId: event.userId || "",
-        photoUrl: event.photoUrl || "",
-      });
-
-      console.log("➕ [ROOM_USER_JOIN]", {
-        room: roomName,
-        username: event.username,
-      });
-
-      return;
-    }
-
-    if (event.action === "leave") {
-      this.roomUsersRepository.removeUser(roomName, event.username);
-
-      console.log("➖ [ROOM_USER_LEAVE]", {
-        room: roomName,
-        username: event.username,
-      });
-    }
+  if (!event) {
+    return;
   }
 
+  const roomName = event.roomName || this.bot.roomName;
+
+  if (event.action === "join") {
+    this.roomUsersRepository.addUser(roomName, {
+      username: event.username,
+      role: event.role || "",
+      userId: event.userId || "",
+      photoUrl: event.photoUrl || "",
+    });
+
+    console.log("➕ [ROOM_USER_JOIN]", {
+      room: roomName,
+      username: event.username,
+    });
+
+    return;
+  }
+
+  if (event.action === "leave") {
+    this.roomUsersRepository.removeUser(roomName, event.username);
+
+    console.log("➖ [ROOM_USER_LEAVE]", {
+      room: roomName,
+      username: event.username,
+    });
+
+    /*
+      لو الخارج من الغرفة هو بوت التحكم نفسه
+      يدخل مرة أخرى تلقائيًا
+    */
+    if (this.isSameBotUsername(event.username)) {
+      this.rejoinRoom("controller_left_or_kicked");
+    }
+  }
+}
   handleRoomCommand(data) {
     const incoming = extractIncomingMessage(data);
 

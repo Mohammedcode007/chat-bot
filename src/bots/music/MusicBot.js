@@ -181,7 +181,32 @@ handleMusicCommand({
   this.socket.sendRoomMessage("Music error.");
 });
   }
+  isSameBotUsername(username) {
+    const a = String(username || "").trim().toLowerCase();
+    const b = String(MUSIC_BOT_USERNAME || "").trim().toLowerCase();
 
+    return a && b && a === b;
+  }
+
+  rejoinRoom(reason = "unknown") {
+    if (this.stopped || !this.socket) {
+      return;
+    }
+
+    console.log("🔁 [MUSIC_AUTO_REJOIN]", {
+      username: MUSIC_BOT_USERNAME,
+      room: this.roomName,
+      reason,
+    });
+
+    setTimeout(() => {
+      if (this.stopped || !this.socket) {
+        return;
+      }
+
+      this.socket.joinRoom(this.roomName);
+    }, 1500);
+  }
   sendRoomMessage(text) {
     if (this.socket) {
       this.socket.sendRoomMessage(text, this.roomName);
