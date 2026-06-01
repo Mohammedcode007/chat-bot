@@ -564,7 +564,6 @@ if (!created.ok) {
 const song = created.song;
 const text = formatSongDetails(song);
 
-    const text = formatSongDetails(song);
 
     const sentText = sendRoomTextSafe(target.socket, text);
 
