@@ -1,0 +1,43 @@
+{
+  "𝑴𝒆𝒓𝒄𝒊𝒍𝒆𝒔𝒔⛧": {
+    "current": [
+      {
+        "username": "music_dj",
+        "role": "admin",
+        "userId": "",
+        "photoUrl": "",
+        "joinedAt": "2026-05-29T09:22:59.171Z"
+      },
+      {
+        "username": "؏ـلــے°مثـۦ𐀔ۦـلڪُِِ❖ٱصـ.ٓـافـح❖قلبــے°وٱۿٰ۪ـنـ.ٓـيۿٰ۪ہ",
+        "role": "owner",
+        "userId": "",
+        "photoUrl": "",
+        "joinedAt": "2026-05-29T09:22:59.171Z"
+      },
+      {
+        "username": "ا◙☬ځُــۥـ☼ـڈ◄أڵـــســمـــٱ۽►ـۉد☼ــۥــۓ☬◙ا",
+        "role": "creator",
+        "userId": "433523168485",
+        "photoUrl": "",
+        "joinedAt": "2026-05-29T09:23:03.492Z"
+      }
+    ],
+    "recent": [
+      {
+        "username": "ا◙☬ځُــۥـ☼ـڈ◄أڵـــســمـــٱ۽►ـۉد☼ــۥــۓ☬◙ا",
+        "role": "creator",
+        "userId": "452789237130",
+        "photoUrl": "",
+        "enteredAt": "2026-05-29T09:23:03.501Z"
+      },
+      {
+        "username": "music_dj",
+        "role": "admin",
+        "userId": "470006547797",
+        "photoUrl": "",
+        "enteredAt": "2026-05-29T09:22:59.167Z"
+      }
+    ]
+  }
+}

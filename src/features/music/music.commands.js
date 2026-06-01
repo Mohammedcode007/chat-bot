@@ -79,7 +79,6 @@ function cleanShortSongName(value) {
 
   return cleaned || "song";
 }
-
 function formatSongDetails(song) {
   const songName = String(song.songName || "Unknown song").trim();
 
@@ -106,6 +105,32 @@ function formatSongDetails(song) {
     .filter((v) => v !== null && v !== undefined)
     .join("\n");
 }
+// function formatSongDetails(song) {
+//   const songName = String(song.songName || "Unknown song").trim();
+
+//   const lines = [
+//     songName,
+//     "",
+//     `${song.requestedBy}@${song.roomName}`,
+//   ];
+
+//   if (song.customMessage) {
+//     lines.push(String(song.customMessage).trim());
+//   }
+
+//   lines.push(
+//     "",
+//     song.url || "",
+//     "",
+//     `like@${song.id}`,
+//     "",
+//     `com@${song.id}@msg`
+//   );
+
+//   return lines
+//     .filter((v) => v !== null && v !== undefined)
+//     .join("\n");
+// }
 function sendRoomTextSafe(socket, text) {
   if (!socket || !text) return false;
 
@@ -404,9 +429,19 @@ async function handlePlaySong(context) {
     return;
   }
 
-  sendRoomTextSafe(socket, `Loading: ${songName}`);
-
   const senderName = getSenderName(sender);
+
+  /*
+    فحص قبل تحميل الأغنية حتى لا يضيع وقت وسيرفر
+  */
+  const cooldown = songLikesRepository.canCreateSong(senderName);
+
+  if (!cooldown.ok && cooldown.reason === "cooldown") {
+    sendRoomTextSafe(socket, `Wait ${cooldown.waitSeconds}s`);
+    return;
+  }
+
+  sendRoomTextSafe(socket, `Loading: ${songName}`);
 
   const prepared = await prepareSong({
     songName,
@@ -419,13 +454,26 @@ async function handlePlaySong(context) {
     return;
   }
 
-const song = songLikesRepository.createSong({
-  songName: prepared.title,
-  roomName: bot.roomName,
-  requestedBy: senderName,
-  url: prepared.url,
-  customMessage: "",
-});
+  const created = songLikesRepository.createSong({
+    songName: prepared.title,
+    roomName: bot.roomName,
+    requestedBy: senderName,
+    url: prepared.url,
+    customMessage: "",
+  });
+
+  if (!created.ok && created.reason === "cooldown") {
+    sendRoomTextSafe(socket, `Wait ${created.waitSeconds}s`);
+    return;
+  }
+
+  if (!created.ok) {
+    sendRoomTextSafe(socket, "Song failed.");
+    return;
+  }
+
+  const song = created.song;
+
   sendRoomTextSafe(socket, formatSongDetails(song));
 
   if (prepared.url) {
@@ -460,6 +508,12 @@ const customMessage =
   parsed && parsed.meta && parsed.meta.customMessage
     ? String(parsed.meta.customMessage).trim()
     : "";
+    const cooldown = songLikesRepository.canCreateSong(senderName);
+
+if (!cooldown.ok && cooldown.reason === "cooldown") {
+  sendRoomTextSafe(socket, `Wait ${cooldown.waitSeconds}s`);
+  return;
+}
   const prepared = await prepareSong( {
     songName,
     sender,
@@ -489,13 +543,26 @@ const customMessage =
   const sourceRoomName = bot.roomName;
 
   for (const target of targets) {
-  const song = songLikesRepository.createSong({
+const created = songLikesRepository.createSong({
   songName: prepared.title,
   roomName: sourceRoomName,
   requestedBy: senderName,
   url: prepared.url,
   customMessage,
 });
+
+if (!created.ok && created.reason === "cooldown") {
+  sendRoomTextSafe(socket, `Wait ${created.waitSeconds}s`);
+  return;
+}
+
+if (!created.ok) {
+  sendRoomTextSafe(socket, "Song failed.");
+  return;
+}
+
+const song = created.song;
+const text = formatSongDetails(song);
 
     const text = formatSongDetails(song);
 
@@ -538,7 +605,6 @@ const customMessage =
 
   sendRoomTextSafe(socket, `Sent: ${sentCount}`);
 }
-
 function handleLikeSong(context) {
   const { sender, socket, parsed } = context;
 
@@ -554,7 +620,12 @@ function handleLikeSong(context) {
   const result = songLikesRepository.likeSong(songId, senderName);
 
   if (!result.ok && result.reason === "not_found") {
-    sendRoomTextSafe(socket, "Not found.");
+    sendRoomTextSafe(socket, "Not found or expired.");
+    return;
+  }
+
+  if (!result.ok && result.reason === "self_like") {
+    sendRoomTextSafe(socket, "You cannot like your own song.");
     return;
   }
 
@@ -581,6 +652,49 @@ function handleLikeSong(context) {
     );
   }
 }
+
+// function handleLikeSong(context) {
+//   const { sender, socket, parsed } = context;
+
+//   const songId = parsed.args[0];
+
+//   if (!songId) {
+//     sendRoomTextSafe(socket, "Use: like@id");
+//     return;
+//   }
+
+//   const senderName = getSenderName(sender);
+
+//   const result = songLikesRepository.likeSong(songId, senderName);
+
+//   if (!result.ok && result.reason === "not_found") {
+//     sendRoomTextSafe(socket, "Not found.");
+//     return;
+//   }
+
+//   if (!result.ok && result.reason === "already_liked") {
+//     sendRoomTextSafe(socket, "Already liked.");
+//     return;
+//   }
+
+//   sendRoomTextSafe(
+//     socket,
+//     `Liked\n${result.song.songName}\nLikes: ${result.song.likesCount}`
+//   );
+
+//   if (result.song.requestedBy) {
+//     sendPrivateSafe(
+//       socket,
+//       result.song.requestedBy,
+//       [
+//         "New like",
+//         result.song.songName,
+//         `From: ${senderName}`,
+//         `Likes: ${result.song.likesCount}`,
+//       ].join("\n")
+//     );
+//   }
+// }
 
 function handleCommentSong(context) {
   const { sender, socket, parsed } = context;
