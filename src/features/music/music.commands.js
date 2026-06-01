@@ -67,7 +67,7 @@ function getSongUrlFromResult(result) {
     if (match && match[0]) {
       return match[0].trim();
     }
-  } catch {}
+  } catch { }
 
   return "";
 }
@@ -275,8 +275,8 @@ function getBroadcastTargets(runtime, currentContext = {}) {
 
   const connections =
     runtime &&
-    runtime.registry &&
-    runtime.registry.connections instanceof Map
+      runtime.registry &&
+      runtime.registry.connections instanceof Map
       ? runtime.registry.connections
       : null;
 
@@ -404,10 +404,17 @@ async function handlePlaySong(context) {
     return;
   }
 
+  /*
+    1) رسالة فورية فقط لإبلاغ المستخدم أن الأغنية يتم تجهيزها
+  */
   sendRoomTextSafe(socket, `Loading: ${songName}`);
 
   const senderName = getSenderName(sender);
 
+  /*
+    2) هنا ننتظر تجهيز الرابط بالكامل
+    لا يتم إرسال باقي الرسائل إلا بعد أن يرجع prepared.url
+  */
   const prepared = await prepareSong({
     songName,
     sender,
@@ -419,17 +426,26 @@ async function handlePlaySong(context) {
     return;
   }
 
-const song = songLikesRepository.createSong({
-  songName: prepared.title,
-  roomName: bot.roomName,
-  requestedBy: senderName,
-  url: prepared.url,
-  customMessage: "",
-});
+  const song = songLikesRepository.createSong({
+    songName: prepared.title,
+    roomName: bot.roomName,
+    requestedBy: senderName,
+    url: prepared.url,
+    customMessage: "",
+  });
+
+  /*
+    3) بعد تجهيز الرابط: أرسل رسالة التفاصيل أولًا
+  */
   sendRoomTextSafe(socket, formatSongDetails(song));
 
+  /*
+    4) بعدها أرسل رسالة الصوت بنفس الترتيب
+  */
   if (prepared.url) {
-    sendRoomAudioSafe(socket, prepared.url);
+    setTimeout(() => {
+      sendRoomAudioSafe(socket, prepared.url);
+    }, 300);
   } else {
     sendRoomTextSafe(socket, "No audio URL.");
   }
@@ -456,11 +472,11 @@ async function handleSongGlobal(context) {
   sendRoomTextSafe(socket, `Loading: ${songName}`);
 
   const senderName = getSenderName(sender);
-const customMessage =
-  parsed && parsed.meta && parsed.meta.customMessage
-    ? String(parsed.meta.customMessage).trim()
-    : "";
-  const prepared = await prepareSong( {
+  const customMessage =
+    parsed && parsed.meta && parsed.meta.customMessage
+      ? String(parsed.meta.customMessage).trim()
+      : "";
+  const prepared = await prepareSong({
     songName,
     sender,
     roomName: bot.roomName,
@@ -488,20 +504,27 @@ const customMessage =
   */
   const sourceRoomName = bot.roomName;
 
-  for (const target of targets) {
+for (const target of targets) {
   const song = songLikesRepository.createSong({
-  songName: prepared.title,
-  roomName: sourceRoomName,
-  requestedBy: senderName,
-  url: prepared.url,
-  customMessage,
-});
+    songName: prepared.title,
+    roomName: sourceRoomName,
+    requestedBy: senderName,
+    url: prepared.url,
+    customMessage,
+  });
 
-    const text = formatSongDetails(song);
+  const text = formatSongDetails(song);
 
-    const sentText = sendRoomTextSafe(target.socket, text);
+  /*
+    بعد تجهيز الرابط: أرسل التفاصيل أولًا
+  */
+  const sentText = sendRoomTextSafe(target.socket, text);
 
-    if (prepared.url) {
+  /*
+    بعدها أرسل الصوت بنفس الترتيب
+  */
+  if (prepared.url) {
+    setTimeout(() => {
       const audioSent = sendRoomAudioSafe(target.socket, prepared.url);
 
       if (!audioSent) {
@@ -512,29 +535,23 @@ const customMessage =
           url: prepared.url,
         });
       }
-    }
-
-    if (sentText) {
-      sentCount += 1;
-
-      if (target.type === "music") {
-        musicCount += 1;
-      }
-
-      if (target.type === "controller") {
-        controllerCount += 1;
-      }
-    }
+    }, 300);
   }
 
-  console.log("🎵 [SONG_GLOBAL_DONE]", {
-    command: parsed.command,
-    songName,
-    sourceRoomName,
-    sentCount,
-    musicCount,
-    controllerCount,
-  });
+  if (sentText) {
+    sentCount += 1;
+
+    if (target.type === "music") {
+      musicCount += 1;
+    }
+
+    if (target.type === "controller") {
+      controllerCount += 1;
+    }
+  }
+}
+
+
 
   sendRoomTextSafe(socket, `Sent: ${sentCount}`);
 }
