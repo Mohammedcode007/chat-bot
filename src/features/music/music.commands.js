@@ -67,7 +67,7 @@ function getSongUrlFromResult(result) {
     if (match && match[0]) {
       return match[0].trim();
     }
-  } catch {}
+  } catch { }
 
   return "";
 }
@@ -300,8 +300,8 @@ function getBroadcastTargets(runtime, currentContext = {}) {
 
   const connections =
     runtime &&
-    runtime.registry &&
-    runtime.registry.connections instanceof Map
+      runtime.registry &&
+      runtime.registry.connections instanceof Map
       ? runtime.registry.connections
       : null;
 
@@ -437,7 +437,7 @@ async function handlePlaySong(context) {
   const cooldown = songLikesRepository.canCreateSong(senderName);
 
   if (!cooldown.ok && cooldown.reason === "cooldown") {
-    sendRoomTextSafe(socket, `Wait ${cooldown.waitSeconds}s`);
+    sendRoomTextSafe(socket, `Please wait ${cooldown.waitSeconds}s.`);
     return;
   }
 
@@ -462,10 +462,10 @@ async function handlePlaySong(context) {
     customMessage: "",
   });
 
-  if (!created.ok && created.reason === "cooldown") {
-    sendRoomTextSafe(socket, `Wait ${created.waitSeconds}s`);
-    return;
-  }
+if (!created.ok && created.reason === "cooldown") {
+  sendRoomTextSafe(socket, `Please wait ${created.waitSeconds}s.`);
+  return;
+}
 
   if (!created.ok) {
     sendRoomTextSafe(socket, "Song failed.");
@@ -501,20 +501,30 @@ async function handleSongGlobal(context) {
     return;
   }
 
+  const senderName = getSenderName(sender);
+
+  const customMessage =
+    parsed && parsed.meta && parsed.meta.customMessage
+      ? String(parsed.meta.customMessage).trim()
+      : "";
+
+  /*
+    هنا فقط يتم فحص الانتظار.
+    يعني لو المستخدم شغل أغنية أخرى خلال المدة، يرسل رسالة انتظار فقط.
+  */
+  const cooldown = songLikesRepository.canCreateSong(senderName);
+
+  if (!cooldown.ok && cooldown.reason === "cooldown") {
+    sendRoomTextSafe(socket, `Please wait ${cooldown.waitSeconds}s.`);
+    return;
+  }
+
+  /*
+    لا نرسل Loading إلا بعد التأكد أن المستخدم مسموح له يشغل أغنية.
+  */
   sendRoomTextSafe(socket, `Loading: ${songName}`);
 
-  const senderName = getSenderName(sender);
-const customMessage =
-  parsed && parsed.meta && parsed.meta.customMessage
-    ? String(parsed.meta.customMessage).trim()
-    : "";
-    const cooldown = songLikesRepository.canCreateSong(senderName);
-
-if (!cooldown.ok && cooldown.reason === "cooldown") {
-  sendRoomTextSafe(socket, `Wait ${cooldown.waitSeconds}s`);
-  return;
-}
-  const prepared = await prepareSong( {
+  const prepared = await prepareSong({
     songName,
     sender,
     roomName: bot.roomName,
@@ -532,39 +542,39 @@ if (!cooldown.ok && cooldown.reason === "cooldown") {
     return;
   }
 
+  const sourceRoomName = bot.roomName;
+
+  /*
+    مهم جدًا:
+    إنشاء الأغنية مرة واحدة فقط.
+    لا تضع createSong داخل for.
+  */
+  const created = songLikesRepository.createSong({
+    songName: prepared.title,
+    roomName: sourceRoomName,
+    requestedBy: senderName,
+    url: prepared.url,
+    customMessage,
+  });
+
+  if (!created.ok && created.reason === "cooldown") {
+    sendRoomTextSafe(socket, `Please wait ${created.waitSeconds}s.`);
+    return;
+  }
+
+  if (!created.ok) {
+    sendRoomTextSafe(socket, "Song failed.");
+    return;
+  }
+
+  const song = created.song;
+  const text = formatSongDetails(song);
+
   let sentCount = 0;
   let musicCount = 0;
   let controllerCount = 0;
 
-  /*
-    اسم الغرفة الأصلية التي تم تشغيل الأمر منها.
-    هذا الاسم سيظهر في كل الرسائل، وليس اسم كل غرفة مستقبلة.
-  */
-  const sourceRoomName = bot.roomName;
-
   for (const target of targets) {
-const created = songLikesRepository.createSong({
-  songName: prepared.title,
-  roomName: sourceRoomName,
-  requestedBy: senderName,
-  url: prepared.url,
-  customMessage,
-});
-
-if (!created.ok && created.reason === "cooldown") {
-  sendRoomTextSafe(socket, `Wait ${created.waitSeconds}s`);
-  return;
-}
-
-if (!created.ok) {
-  sendRoomTextSafe(socket, "Song failed.");
-  return;
-}
-
-const song = created.song;
-const text = formatSongDetails(song);
-
-
     const sentText = sendRoomTextSafe(target.socket, text);
 
     if (prepared.url) {
@@ -602,6 +612,9 @@ const text = formatSongDetails(song);
     controllerCount,
   });
 
+  /*
+    بعد نجاح الإرسال، يرجع عدد الغرف فقط.
+  */
   sendRoomTextSafe(socket, `Sent: ${sentCount}`);
 }
 function handleLikeSong(context) {
