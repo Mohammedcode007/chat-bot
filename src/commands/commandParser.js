@@ -48,79 +48,79 @@ function parseCommand(text) {
       hasPrefix: false,
     };
   }
-/*
-  Controller room admin commands
-  m@username = member
-  k@username = kick
-  b@username = ban
-  o@username = owner
-  a@username = admin
-*/
-if (
-  lowerRaw.startsWith("m@") ||
-  lowerRaw.startsWith("k@") ||
-  lowerRaw.startsWith("b@") ||
-  lowerRaw.startsWith("o@") ||
-  lowerRaw.startsWith("a@")
-) {
-  const actionKey = lowerRaw.slice(0, 1);
-  const username = raw.slice(2).trim();
+  /*
+    Controller room admin commands
+    m@username = member
+    k@username = kick
+    b@username = ban
+    o@username = owner
+    a@username = admin
+  */
+  if (
+    lowerRaw.startsWith("m@") ||
+    lowerRaw.startsWith("k@") ||
+    lowerRaw.startsWith("b@") ||
+    lowerRaw.startsWith("o@") ||
+    lowerRaw.startsWith("a@")
+  ) {
+    const actionKey = lowerRaw.slice(0, 1);
+    const username = raw.slice(2).trim();
 
-  if (!username) {
-    return null;
+    if (!username) {
+      return null;
+    }
+
+    const commandMap = {
+      m: "control_member",
+      k: "control_kick",
+      b: "control_ban",
+      o: "control_owner",
+      a: "control_admin",
+    };
+
+    return {
+      raw,
+      command: commandMap[actionKey],
+      args: [username],
+      hasPrefix: false,
+    };
   }
+  /*
+    Profile lookup
+    p@username
+  */
+  if (lowerRaw.startsWith("p@")) {
+    const username = raw.slice(2).trim();
 
-  const commandMap = {
-    m: "control_member",
-    k: "control_kick",
-    b: "control_ban",
-    o: "control_owner",
-    a: "control_admin",
-  };
+    if (!username) {
+      return null;
+    }
 
-  return {
-    raw,
-    command: commandMap[actionKey],
-    args: [username],
-    hasPrefix: false,
-  };
-}
-/*
-  Profile lookup
-  p@username
-*/
-if (lowerRaw.startsWith("p@")) {
-  const username = raw.slice(2).trim();
-
-  if (!username) {
-    return null;
+    return {
+      raw,
+      command: "profile_lookup",
+      args: [username],
+      hasPrefix: false,
+    };
   }
+  /*
+    User lookup
+    is@username
+  */
+  if (lowerRaw.startsWith("is@")) {
+    const username = raw.slice(3).trim();
 
-  return {
-    raw,
-    command: "profile_lookup",
-    args: [username],
-    hasPrefix: false,
-  };
-}
-/*
-  User lookup
-  is@username
-*/
-if (lowerRaw.startsWith("is@")) {
-  const username = raw.slice(3).trim();
+    if (!username) {
+      return null;
+    }
 
-  if (!username) {
-    return null;
+    return {
+      raw,
+      command: "user_lookup",
+      args: [username],
+      hasPrefix: false,
+    };
   }
-
-  return {
-    raw,
-    command: "user_lookup",
-    args: [username],
-    hasPrefix: false,
-  };
-}
   /*
     VIP
     vip@username
@@ -284,46 +284,73 @@ if (lowerRaw.startsWith("is@")) {
       hasPrefix: false,
     };
   }
-/*
-  .so@songname@msg
-  .sh@songname@msg
-  .ps@songname@msg
-
-  أو:
-  .so songname
-  .sh songname
-  .ps songname
-*/
-if (
-  lowerRaw.startsWith(".so@") ||
-  lowerRaw.startsWith(".sh@") ||
-  lowerRaw.startsWith(".ps@") ||
+  /*
+    .so@songname@msg
+    .sh@songname@msg
+    .ps@songname@msg
+  
+    أو:
+    .so songname
+    .sh songname
+    .ps songname
+  */
+ if (
   lowerRaw.startsWith(".so ") ||
   lowerRaw.startsWith(".sh ") ||
   lowerRaw.startsWith(".ps ")
 ) {
   const commandText = lowerRaw.slice(0, 3);
 
-  let body = "";
-
-  if (raw.charAt(3) === "@") {
-    body = raw.slice(4).trim();
-  } else {
-    body = raw.slice(3).trim();
-  }
+  const body = raw.slice(3).trim();
 
   if (!body) {
     return null;
   }
 
   let songName = body;
+  let shareTo = "";
   let customMessage = "";
 
-  const atIndex = body.indexOf("@");
+  const hasAt = body.includes("@");
+  const hasHash = body.includes("#");
 
-  if (atIndex !== -1) {
+  /*
+    المسموح فقط:
+    .ps song name@username
+    .sh song name@username
+    .so song name@username
+
+    أو:
+    .ps song name#message
+    .sh song name#message
+    .so song name#message
+
+    غير مسموح خلط @ و # في نفس الأمر
+  */
+  if (hasAt && hasHash) {
+    return null;
+  }
+
+  if (hasAt) {
+    const atIndex = body.lastIndexOf("@");
+
     songName = body.slice(0, atIndex).trim();
-    customMessage = body.slice(atIndex + 1).trim();
+    shareTo = body.slice(atIndex + 1).trim();
+
+    if (!shareTo) {
+      return null;
+    }
+  }
+
+  if (hasHash) {
+    const hashIndex = body.indexOf("#");
+
+    songName = body.slice(0, hashIndex).trim();
+    customMessage = body.slice(hashIndex + 1).trim();
+
+    if (!customMessage) {
+      return null;
+    }
   }
 
   if (!songName) {
@@ -345,11 +372,68 @@ if (
     command,
     args: [songName],
     meta: {
+      shareTo,
       customMessage,
     },
     hasPrefix: false,
   };
 }
+  // if (
+  //   lowerRaw.startsWith(".so@") ||
+  //   lowerRaw.startsWith(".sh@") ||
+  //   lowerRaw.startsWith(".ps@") ||
+  //   lowerRaw.startsWith(".so ") ||
+  //   lowerRaw.startsWith(".sh ") ||
+  //   lowerRaw.startsWith(".ps ")
+  // ) {
+  //   const commandText = lowerRaw.slice(0, 3);
+
+  //   let body = "";
+
+  //   if (raw.charAt(3) === "@") {
+  //     body = raw.slice(4).trim();
+  //   } else {
+  //     body = raw.slice(3).trim();
+  //   }
+
+  //   if (!body) {
+  //     return null;
+  //   }
+
+  //   let songName = body;
+  //   let customMessage = "";
+
+  //   const atIndex = body.indexOf("@");
+
+  //   if (atIndex !== -1) {
+  //     songName = body.slice(0, atIndex).trim();
+  //     customMessage = body.slice(atIndex + 1).trim();
+  //   }
+
+  //   if (!songName) {
+  //     return null;
+  //   }
+
+  //   let command = "song_broadcast";
+
+  //   if (commandText === ".sh") {
+  //     command = "song_here";
+  //   }
+
+  //   if (commandText === ".ps") {
+  //     command = "song_private";
+  //   }
+
+  //   return {
+  //     raw,
+  //     command,
+  //     args: [songName],
+  //     meta: {
+  //       customMessage,
+  //     },
+  //     hasPrefix: false,
+  //   };
+  // }
   if (lowerRaw.startsWith("like@")) {
     const songId = raw.slice(5).trim();
 

@@ -79,32 +79,6 @@ function cleanShortSongName(value) {
 
   return cleaned || "song";
 }
-function formatSongDetails(song) {
-  const songName = String(song.songName || "Unknown song").trim();
-
-  const lines = [
-    songName,
-    "",
-    `${song.requestedBy}@${song.roomName}`,
-  ];
-
-  if (song.customMessage) {
-    lines.push(String(song.customMessage).trim());
-  }
-
-  lines.push(
-    "",
-    song.url || "",
-    "",
-    `like@${song.id}`,
-    "",
-    `com@${song.id}@msg`
-  );
-
-  return lines
-    .filter((v) => v !== null && v !== undefined)
-    .join("\n");
-}
 // function formatSongDetails(song) {
 //   const songName = String(song.songName || "Unknown song").trim();
 
@@ -131,6 +105,46 @@ function formatSongDetails(song) {
 //     .filter((v) => v !== null && v !== undefined)
 //     .join("\n");
 // }
+function formatSongDetails(song) {
+  const songName = String(song.songName || "Unknown song").trim();
+  const customMessage = String(song.customMessage || "").trim();
+  const shareTo = String(song.shareTo || "").trim();
+
+  const lines = [songName];
+
+  /*
+    لو الأمر كان:
+    .ps song name#message
+    تظهر الرسالة تحت اسم الأغنية مباشرة
+  */
+  if (customMessage) {
+    lines.push(customMessage);
+  }
+
+  lines.push("", `${song.requestedBy}@${song.roomName}`);
+
+  /*
+    لو الأمر كان:
+    .ps song name@username
+    يظهر هذا السطر
+  */
+  if (shareTo) {
+    lines.push(`with@${shareTo}`);
+  }
+
+  lines.push(
+    "",
+    song.url || "",
+    "",
+    `like@${song.id}`,
+    "",
+    `com@${song.id}@msg`
+  );
+
+  return lines
+    .filter((v) => v !== null && v !== undefined)
+    .join("\n");
+}
 function sendRoomTextSafe(socket, text) {
   if (!socket || !text) return false;
 
@@ -503,10 +517,15 @@ async function handleSongGlobal(context) {
 
   const senderName = getSenderName(sender);
 
-  const customMessage =
-    parsed && parsed.meta && parsed.meta.customMessage
-      ? String(parsed.meta.customMessage).trim()
-      : "";
+const customMessage =
+  parsed && parsed.meta && parsed.meta.customMessage
+    ? String(parsed.meta.customMessage).trim()
+    : "";
+
+const shareTo =
+  parsed && parsed.meta && parsed.meta.shareTo
+    ? String(parsed.meta.shareTo).trim()
+    : "";
 
   /*
     هنا فقط يتم فحص الانتظار.
@@ -567,8 +586,10 @@ async function handleSongGlobal(context) {
     return;
   }
 
-  const song = created.song;
-  const text = formatSongDetails(song);
+const song = created.song;
+song.shareTo = shareTo;
+
+const text = formatSongDetails(song);
 
   let sentCount = 0;
   let musicCount = 0;
@@ -611,7 +632,28 @@ async function handleSongGlobal(context) {
     musicCount,
     controllerCount,
   });
-
+if (shareTo) {
+  sendPrivateSafe(
+    socket,
+    shareTo,
+    [
+      "Song shared with you",
+      "",
+      song.songName,
+      "",
+      `From: ${senderName}`,
+      `Room: ${sourceRoomName}`,
+      "",
+      song.url || "",
+      "",
+      `like@${song.id}`,
+      "",
+      `com@${song.id}@msg`,
+    ]
+      .filter((v) => v !== null && v !== undefined && String(v).trim() !== "")
+      .join("\n")
+  );
+}
   /*
     بعد نجاح الإرسال، يرجع عدد الغرف فقط.
   */
