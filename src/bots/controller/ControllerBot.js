@@ -17,6 +17,9 @@ const { handleCommand } = require("../../commands/commandRouter");
 const {
   handleAutoBanRoleNoneOnJoin,
   handleWelcomeOnJoin,
+  shouldBlockLink,
+  checkAntiSpam,
+  containsBadWord,
 } = require("../../features/roomSettings/roomSettings.guard");
 const { RoomUsersRepository } = require("../../store/RoomUsersRepository");
 
@@ -327,22 +330,104 @@ handleRoomUserJoinOrLeave(data) {
 //     }
 //   }
 // }
-  handleRoomCommand(data) {
-    const incoming = extractIncomingMessage(data);
+handleRoomCommand(data) {
+  const incoming = extractIncomingMessage(data);
 
-    if (!incoming.text || !incoming.sender) {
-      return;
+  if (!incoming.text || !incoming.sender) {
+    return;
+  }
+
+  const roomName = incoming.roomName || this.bot.roomName;
+
+  /*
+    لا تطبق الحماية على رسائل البوت نفسه
+  */
+  if (this.isSameBotUsername(incoming.sender)) {
+    return;
+  }
+
+  /*
+    =====================================================
+    Links Guard
+    set@links@off
+    =====================================================
+  */
+  if (shouldBlockLink(roomName, incoming.text)) {
+    this.socket.sendRoomMessage(`Links are disabled: ${incoming.sender}`);
+    return;
+  }
+
+  /*
+    =====================================================
+    Bad Words Guard
+    set@badwords@on
+
+    mode:
+    warn = رسالة تحذير فقط
+    kick = طرد
+    ban  = حظر
+    =====================================================
+  */
+  const badWord = containsBadWord(roomName, incoming.text);
+
+  if (badWord.matched) {
+    this.socket.sendRoomMessage(
+      `Bad word detected: ${incoming.sender}`
+    );
+
+    if (
+      badWord.mode === "kick" &&
+      typeof this.socket.sendRoomKick === "function"
+    ) {
+      this.socket.sendRoomKick(incoming.sender, roomName);
     }
 
-    handleCommand({
-      bot: this.bot,
-      sender: incoming.sender,
-      text: incoming.text,
-      socket: this.socket,
-      repository: this.repository,
-      runtime: this.runtime,
-    });
+    if (
+      badWord.mode === "ban" &&
+      typeof this.socket.sendRoomBan === "function"
+    ) {
+      this.socket.sendRoomBan(incoming.sender, roomName);
+    }
+
+    return;
   }
+
+  /*
+    =====================================================
+    Anti Spam Guard
+    set@antispam@on
+    =====================================================
+  */
+  const spam = checkAntiSpam({
+    roomName,
+    username: incoming.sender,
+    text: incoming.text,
+  });
+
+  if (spam.blocked) {
+    this.socket.sendRoomMessage(
+      `Anti spam: ${incoming.sender} (${spam.reason})`
+    );
+
+    if (typeof this.socket.sendRoomKick === "function") {
+      this.socket.sendRoomKick(incoming.sender, roomName);
+    }
+
+    return;
+  }
+
+  /*
+    بعد اجتياز الحماية يتم تنفيذ الأوامر طبيعي
+  */
+  handleCommand({
+    bot: this.bot,
+    sender: incoming.sender,
+    text: incoming.text,
+    socket: this.socket,
+    repository: this.repository,
+    runtime: this.runtime,
+  });
+}
 
   stop() {
     this.stopped = true;

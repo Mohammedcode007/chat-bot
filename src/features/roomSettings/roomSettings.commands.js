@@ -89,6 +89,9 @@ function formatRoomSettings(roomName, settings) {
     "set@badwords@on/off",
     "set@links@on/off",
     "welcome@message",
+    "wc@on",
+    "wc@off",
+    "wc@Welcome $",
     "bad@word",
     "rbad@word",
     "badlist",
@@ -139,13 +142,13 @@ function handleWelcomeText(context) {
   const text = String(parsed.args[0] || "").trim();
 
   if (!text) {
-    socket.sendRoomMessage("Use: welcome@message");
+    socket.sendRoomMessage("Use: wc@Welcome $");
     return;
   }
 
   roomSettingsRepository.setValue(bot.roomName, "welcomeText", text);
 
-  socket.sendRoomMessage("Welcome text updated.");
+  socket.sendRoomMessage("Welcome message updated.");
 }
 
 function handleBadWordAdd(context) {

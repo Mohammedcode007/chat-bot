@@ -177,7 +177,46 @@ if (lowerRaw.startsWith("set@")) {
     hasPrefix: false,
   };
 }
+/*
+  Welcome command
+  wc@on
+  wc@off
+  wc@message $
+*/
+if (lowerRaw.startsWith("wc@")) {
+  const value = raw.slice(3).trim();
 
+  if (!value) {
+    return null;
+  }
+
+  const cleanValue = value.toLowerCase();
+
+  if (cleanValue === "on") {
+    return {
+      raw,
+      command: "room_setting_set",
+      args: ["welcome", "on"],
+      hasPrefix: false,
+    };
+  }
+
+  if (cleanValue === "off") {
+    return {
+      raw,
+      command: "room_setting_set",
+      args: ["welcome", "off"],
+      hasPrefix: false,
+    };
+  }
+
+  return {
+    raw,
+    command: "room_welcome_text",
+    args: [value],
+    hasPrefix: false,
+  };
+}
 /*
   welcome@message
 */

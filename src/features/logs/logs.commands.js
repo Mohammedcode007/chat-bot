@@ -1,7 +1,9 @@
 const { normalizeUsername } = require("../../utils/text");
 const { VipUsersRepository } = require("../../store/VipUsersRepository");
 const { ControlLogsRepository } = require("../../store/ControlLogsRepository");
-
+const {
+  isRoomFeatureEnabled,
+} = require("../roomSettings/roomSettings.guard");
 const {
   createLogSession,
   nextLogPage,
@@ -99,6 +101,20 @@ function handleLogsPrivateCommand({ bot, socket, data }) {
     return false;
   }
 
+  /*
+    مهم:
+    لو logs مقفولة من إعدادات الغرفة، لا تعرض التقارير في الخاص.
+    الأمر:
+    set@logs@off
+  */
+  if (!isRoomFeatureEnabled(bot.roomName, "logsEnabled")) {
+    socket.sendPrivate(
+      incoming.sender,
+      "Logs are disabled in this room."
+    );
+    return true;
+  }
+
   if (!isOwnerOrMaster(bot, incoming.sender)) {
     socket.sendPrivate(incoming.sender, "No permission.");
     return true;
@@ -128,7 +144,10 @@ function handleLogsPrivateCommand({ bot, socket, data }) {
 
     if (!result.ok) {
       if (result.reason === "expired") {
-        socket.sendPrivate(incoming.sender, "Logs session expired. Send logs again.");
+        socket.sendPrivate(
+          incoming.sender,
+          "Logs session expired. Send logs again."
+        );
         return true;
       }
 
