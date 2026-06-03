@@ -2,7 +2,9 @@ const { SocketClient } = require("../../core/SocketClient");
 const { ReconnectManager } = require("../../core/ReconnectManager");
 
 const { makeControllerBotProfile } = require("./ControllerBotProfile");
-
+const {
+  handleLogsPrivateCommand,
+} = require("../../features/logs/logs.commands");
 const {
   extractIncomingMessage,
   extractRoomUserEvent,
@@ -71,19 +73,20 @@ class ControllerBot {
   }
 
   handleMessage(data) {
-    /*
-      مهم:
-      عند دخول البوت الغرفة، السيرفر يرسل:
-      handler: room_event
-      type: you_joined
-      users: [...]
-      لذلك لازم نعالج snapshot قبل الأوامر.
-    */
+  const handledPrivateLogs = handleLogsPrivateCommand({
+    bot: this.bot,
+    socket: this.socket,
+    data,
+  });
 
-    this.handleLoginSuccess(data);
-    this.handleRoomUsersSnapshot(data);
-    this.handleRoomUserJoinOrLeave(data);
-    this.handleRoomCommand(data);
+  if (handledPrivateLogs) {
+    return;
+  }
+
+  this.handleLoginSuccess(data);
+  this.handleRoomUsersSnapshot(data);
+  this.handleRoomUserJoinOrLeave(data);
+  this.handleRoomCommand(data);
   }
   isSameBotUsername(username) {
     const a = String(username || "").trim().toLowerCase();
