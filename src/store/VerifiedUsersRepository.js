@@ -7,75 +7,104 @@ const verifiedUsersStore = new JsonStore(
   {}
 );
 
+function makeKey(username) {
+  return normalizeUsername(username);
+}
+
 class VerifiedUsersRepository {
   getAll() {
-    return verifiedUsersStore.read();
+    const data = verifiedUsersStore.read();
+    return data && typeof data === "object" && !Array.isArray(data) ? data : {};
   }
 
   saveAll(data) {
-    return verifiedUsersStore.write(data);
+    return verifiedUsersStore.write(data || {});
   }
 
-  getRoomVerified(roomName) {
+  /*
+    توثيق عام:
+    لم نعد نستخدم roomName هنا.
+  */
+  isVerified(username) {
     const data = this.getAll();
-    const key = String(roomName || "").trim();
+    const key = makeKey(username);
 
-    return data[key] || [];
+    return Boolean(data[key] && data[key].verified === true);
   }
 
-  isVerified(roomName, username) {
-    return this.getRoomVerified(roomName).some(
-      (item) => normalizeUsername(item.username) === normalizeUsername(username)
-    );
-  }
-
-  verifyUser(roomName, username, verifiedBy) {
+  verifyUser(username, verifiedBy = "system") {
     const data = this.getAll();
-    const key = String(roomName || "").trim();
+    const key = makeKey(username);
 
-    if (!data[key]) {
-      data[key] = [];
-    }
-
-    const exists = data[key].some(
-      (item) => normalizeUsername(item.username) === normalizeUsername(username)
-    );
-
-    if (exists) {
+    if (data[key] && data[key].verified === true) {
       return {
         updated: false,
         alreadyVerified: true,
+        user: data[key],
       };
     }
 
-    data[key].push({
+    data[key] = {
       username,
+      verified: true,
       verifiedBy,
       verifiedAt: new Date().toISOString(),
-    });
+    };
 
     this.saveAll(data);
 
     return {
       updated: true,
       alreadyVerified: false,
+      user: data[key],
     };
   }
 
-  unverifyUser(roomName, username) {
+  unverifyUser(username) {
     const data = this.getAll();
-    const key = String(roomName || "").trim();
+    const key = makeKey(username);
 
-    const users = data[key] || [];
+    if (!data[key]) {
+      return false;
+    }
 
-    const nextUsers = users.filter(
-      (item) => normalizeUsername(item.username) !== normalizeUsername(username)
-    );
-
-    data[key] = nextUsers;
+    delete data[key];
     this.saveAll(data);
 
-    return users.length !== nextUsers.length;
+    return true;
+  }
+
+  listVerified() {
+    const data = this.getAll();
+
+    return Object.values(data || {}).filter((item) => {
+      return item && item.verified === true;
+    });
+  }
+
+  /*
+    دوال توافقية حتى لا يكسر الكود القديم فورًا.
+    لو أي ملف قديم ما زال يستدعي:
+    isVerified(roomName, username)
+    verifyUser(roomName, username, verifiedBy)
+    unverifyUser(roomName, username)
+
+    سيتم التعامل معها.
+  */
+  isVerifiedInRoom(roomName, username) {
+    return this.isVerified(username);
+  }
+
+  verifyUserInRoom(roomName, username, verifiedBy = "system") {
+    return this.verifyUser(username, verifiedBy);
+  }
+
+  unverifyUserInRoom(roomName, username) {
+    return this.unverifyUser(username);
+  }
+
+  getRoomVerified() {
+    return this.listVerified();
   }
 }
 

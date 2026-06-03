@@ -1,9 +1,11 @@
 const { GamePlayersRepository } = require("../../store/GamePlayersRepository");
 const { RoomUsersRepository } = require("../../store/RoomUsersRepository");
+const { VerifiedUsersRepository } = require("../../store/VerifiedUsersRepository");
 const { normalizeUsername } = require("../../utils/text");
 
 const gamePlayersRepository = new GamePlayersRepository();
 const roomUsersRepository = new RoomUsersRepository();
+const verifiedUsersRepository = new VerifiedUsersRepository();
 
 const GAME_COST = 1000;
 const BOMB_REWARD = 1000;
@@ -11,7 +13,9 @@ const VERIFY_GIFT = 1000;
 const BOMB_TIMEOUT_MS = 30 * 1000;
 const VERIFY_TIMEOUT_MS = 10 * 1000;
 const SHIELD_DURATION_MS = 60 * 60 * 1000;
+const SPIN_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
+const spinCooldowns = new Map();
 const bombSessions = new Map();
 const verifySessions = new Map();
 
@@ -92,10 +96,6 @@ function sendVerifyRequest({ socket, username, roomName, reason }) {
 
   socket.sendRoomMessage(text);
 
-  /*
-    نحاول نرسل له خاص أيضًا.
-    لو الخاص لا يصل، رسالة الغرفة تكفي.
-  */
   if (typeof socket.sendPrivate === "function") {
     socket.sendPrivate(username, text);
   }
@@ -123,11 +123,23 @@ function handleVerifyAnswer(context) {
 
   verifySessions.delete(key);
 
-  const player = gamePlayersRepository.verifyUser(sender);
+  /*
+    التوثيق هنا أصبح عامًا ويستخدم نفس نظام:
+    v@username
+    وليس توثيق الألعاب الداخلي.
+  */
+  const result = verifiedUsersRepository.verifyUser(
+    sender,
+    "self_game_verify"
+  );
+
+  const player = gamePlayersRepository.addPoints(sender, VERIFY_GIFT);
 
   socket.sendRoomMessage(
     [
-      "✅ Verified successfully.",
+      result.alreadyVerified
+        ? "✅ Already verified."
+        : "✅ Verified successfully.",
       `User: ${sender}`,
       `Gift: +${VERIFY_GIFT} points`,
       `Balance: ${player.points}`,
@@ -137,9 +149,18 @@ function handleVerifyAnswer(context) {
   return true;
 }
 
-function requireVerifiedForGame({ socket, sender, targetUsername, roomName, gameName }) {
-  const senderVerified = gamePlayersRepository.isVerified(sender);
-  const targetVerified = gamePlayersRepository.isVerified(targetUsername);
+function requireVerifiedForGame({
+  socket,
+  sender,
+  targetUsername,
+  roomName,
+  gameName,
+}) {
+  /*
+    التوثيق هنا عام وليس مرتبطًا بالغرفة.
+  */
+  const senderVerified = verifiedUsersRepository.isVerified(sender);
+  const targetVerified = verifiedUsersRepository.isVerified(targetUsername);
 
   if (!senderVerified) {
     sendVerifyRequest({
@@ -244,7 +265,8 @@ function handleBombCommand(context) {
   }
 
   if (gamePlayersRepository.hasBombShield(targetUsername)) {
-    const remaining = gamePlayersRepository.getBombShieldRemainingMs(targetUsername);
+    const remaining =
+      gamePlayersRepository.getBombShieldRemainingMs(targetUsername);
 
     socket.sendRoomMessage(
       [
@@ -407,7 +429,8 @@ async function handleBlastCommand(context) {
   }
 
   if (gamePlayersRepository.hasBombShield(targetUsername)) {
-    const remaining = gamePlayersRepository.getBombShieldRemainingMs(targetUsername);
+    const remaining =
+      gamePlayersRepository.getBombShieldRemainingMs(targetUsername);
 
     socket.sendRoomMessage(
       [
@@ -454,10 +477,6 @@ async function handleBlastCommand(context) {
 
   await wait(1000);
 
-  /*
-    محاولة إرجاع الرتبة الأصلية.
-    لو المستخدم خرج بعد الطرد، قد لا يقبل السيرفر تغيير رتبته.
-  */
   sendRole(socket, originalRole, targetUsername, bot.roomName);
 
   socket.sendRoomMessage(
@@ -480,11 +499,35 @@ function getSpinPrizes() {
       type: "text",
     },
     {
-      label: "🚗 Car",
+      label: "🚗 Luxury car",
       type: "text",
     },
     {
-      label: "✈️ Airplane",
+      label: "🏎️ Sports car",
+      type: "text",
+    },
+    {
+      label: "🚌 Golden bus",
+      type: "text",
+    },
+    {
+      label: "🚲 Magic bike",
+      type: "text",
+    },
+    {
+      label: "✈️ Private airplane",
+      type: "text",
+    },
+    {
+      label: "🚀 Rocket trip",
+      type: "text",
+    },
+    {
+      label: "🚁 Helicopter ride",
+      type: "text",
+    },
+    {
+      label: "🛥️ Luxury yacht",
       type: "text",
     },
     {
@@ -500,8 +543,70 @@ function getSpinPrizes() {
       type: "text",
     },
     {
+      label: "🏯 Trip to Tokyo",
+      type: "text",
+    },
+    {
+      label: "🏜️ Trip to Dubai",
+      type: "text",
+    },
+    {
+      label: "🕌 Trip to Istanbul",
+      type: "text",
+    },
+    {
+      label: "🏖️ Trip to Bali",
+      type: "text",
+    },
+    {
+      label: "🦁 Lion",
+      type: "text",
+    },
+    {
+      label: "🐅 Tiger",
+      type: "text",
+    },
+    {
+      label: "🐎 Golden horse",
+      type: "text",
+    },
+    {
+      label: "🐺 Wolf",
+      type: "text",
+    },
+    {
+      label: "🦅 Eagle",
+      type: "text",
+    },
+    {
+      label: "👑 Golden crown",
+      type: "text",
+    },
+    {
+      label: "💎 Diamond box",
+      type: "text",
+    },
+    {
+      label: "🔥 Fire badge",
+      type: "text",
+    },
+    {
       label: "🛡️ One hour blast protection",
       type: "shield",
+    },
+    {
+      label: "🛡️ One hour bomb protection",
+      type: "shield",
+    },
+    {
+      label: "💰 500 points",
+      type: "points",
+      points: 500,
+    },
+    {
+      label: "💰 1,000 points",
+      type: "points",
+      points: 1000,
     },
     {
       label: "💰 2,000 points",
@@ -514,6 +619,16 @@ function getSpinPrizes() {
       points: 5000,
     },
     {
+      label: "💰 10,000 points",
+      type: "points",
+      points: 10000,
+    },
+    {
+      label: "💰 20,000 points",
+      type: "points",
+      points: 20000,
+    },
+    {
       label: "🎁 Grand prize 50,000 points",
       type: "points",
       points: 50000,
@@ -522,11 +637,54 @@ function getSpinPrizes() {
       label: "🍀 Better luck next time",
       type: "text",
     },
+    {
+      label: "😅 You won nothing",
+      type: "text",
+    },
+    {
+      label: "🎭 Mystery prize: empty box",
+      type: "text",
+    },
   ];
+}
+
+function getSpinCooldownKey(username) {
+  return normalizeKey(username);
+}
+
+function getSpinCooldownRemaining(username) {
+  const key = getSpinCooldownKey(username);
+  const lastSpinAt = spinCooldowns.get(key) || 0;
+
+  const elapsed = Date.now() - lastSpinAt;
+  const remaining = SPIN_COOLDOWN_MS - elapsed;
+
+  return remaining > 0 ? remaining : 0;
+}
+
+function setSpinCooldown(username) {
+  const key = getSpinCooldownKey(username);
+  spinCooldowns.set(key, Date.now());
 }
 
 function handleSpinCommand(context) {
   const { sender, socket } = context;
+
+  const remaining = getSpinCooldownRemaining(sender);
+
+  if (remaining > 0) {
+    socket.sendRoomMessage(
+      [
+        "⏳ Spin cooldown",
+        `User: ${sender}`,
+        `Try again after: ${formatMs(remaining)}`,
+      ].join("\n")
+    );
+
+    return;
+  }
+
+  setSpinCooldown(sender);
 
   const prizes = getSpinPrizes();
   const prize = prizes[Math.floor(Math.random() * prizes.length)];
@@ -535,12 +693,21 @@ function handleSpinCommand(context) {
 
   if (prize.type === "points") {
     const player = gamePlayersRepository.addPoints(sender, prize.points);
-    extra = `\nBalance: ${player.points}`;
+
+    extra = [
+      "",
+      `Points: +${prize.points}`,
+      `Balance: ${player.points}`,
+    ].join("\n");
   }
 
   if (prize.type === "shield") {
     gamePlayersRepository.setBombShield(sender, SHIELD_DURATION_MS);
-    extra = "\nProtection: 1 hour";
+
+    extra = [
+      "",
+      "Protection: 1 hour",
+    ].join("\n");
   }
 
   socket.sendRoomMessage(
@@ -556,11 +723,6 @@ function handleSpinCommand(context) {
 function handleGameCommand(context) {
   const { parsed } = context;
 
-  /*
-    أولوية:
-    1 / 2 / 3 يمكن أن تكون إجابة bomb.
-    1 يمكن أن تكون إجابة توثيق.
-  */
   if (parsed.command === "game_answer") {
     const bombHandled = handleBombAnswer(context);
 
