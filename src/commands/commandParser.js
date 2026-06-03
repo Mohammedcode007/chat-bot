@@ -49,24 +49,25 @@ function parseCommand(text) {
     };
   }
   /*
-    Controller room admin commands
-    m@username = member
-    k@username = kick
-    b@username = ban
-    o@username = owner
-    a@username = admin
-  */
-  if (
-    lowerRaw.startsWith("m@") ||
-    lowerRaw.startsWith("k@") ||
-    lowerRaw.startsWith("b@") ||
-    lowerRaw.startsWith("o@") ||
-    lowerRaw.startsWith("a@")
-  ) {
-    const actionKey = lowerRaw.slice(0, 1);
-    const username = raw.slice(2).trim();
+  Controller room admin commands
+  m@username / m username = member
+  k@username / k username = kick
+  b@username / b username = ban
+  o@username / o username = owner
+  a@username / a username = admin
 
-    if (!username) {
+  Also supports numbers after .r/.nx:
+  m@5
+  k@1-5
+*/
+{
+  const controlMatch = raw.match(/^([mkboa])(?:@|\s+)(.+)$/i);
+
+  if (controlMatch) {
+    const actionKey = controlMatch[1].toLowerCase();
+    const target = String(controlMatch[2] || "").trim();
+
+    if (!target) {
       return null;
     }
 
@@ -81,10 +82,74 @@ function parseCommand(text) {
     return {
       raw,
       command: commandMap[actionKey],
-      args: [username],
+      args: [target],
       hasPrefix: false,
     };
   }
+}
+
+/*
+  Invite command
+  i@username
+  i username
+  i@5
+  i@1-5
+*/
+{
+  const inviteMatch = raw.match(/^i(?:@|\s+)(.+)$/i);
+
+  if (inviteMatch) {
+    const target = String(inviteMatch[1] || "").trim();
+
+    if (!target) {
+      return null;
+    }
+
+    return {
+      raw,
+      command: "invite_user",
+      args: [target],
+      hasPrefix: false,
+    };
+  }
+}
+  // /*
+  //   Controller room admin commands
+  //   m@username = member
+  //   k@username = kick
+  //   b@username = ban
+  //   o@username = owner
+  //   a@username = admin
+  // */
+  // if (
+  //   lowerRaw.startsWith("m@") ||
+  //   lowerRaw.startsWith("k@") ||
+  //   lowerRaw.startsWith("b@") ||
+  //   lowerRaw.startsWith("o@") ||
+  //   lowerRaw.startsWith("a@")
+  // ) {
+  //   const actionKey = lowerRaw.slice(0, 1);
+  //   const username = raw.slice(2).trim();
+
+  //   if (!username) {
+  //     return null;
+  //   }
+
+  //   const commandMap = {
+  //     m: "control_member",
+  //     k: "control_kick",
+  //     b: "control_ban",
+  //     o: "control_owner",
+  //     a: "control_admin",
+  //   };
+
+  //   return {
+  //     raw,
+  //     command: commandMap[actionKey],
+  //     args: [username],
+  //     hasPrefix: false,
+  //   };
+  // }
   /*
     Profile lookup
     p@username

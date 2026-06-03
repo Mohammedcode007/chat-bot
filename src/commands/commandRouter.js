@@ -23,7 +23,14 @@ const {
 const {
   handleControllerControlCommand,
 } = require("../features/controllerControl/controllerControl.commands");
+const {
+  saveListActionSession,
+  refreshListActionSession,
+} = require("../features/listActions/listActionSessions");
 
+const {
+  handleInviteCommand,
+} = require("../features/listActions/invite.commands");
 const {
   handleProfileLookupCommand,
 } = require("../features/profileLookup/profileLookup.commands");
@@ -84,6 +91,25 @@ function handleUsersCommand(context) {
   context.socket.sendRoomMessage(formatUsersPage("Current users:", session));
 }
 
+// function handleRecentCommand(context) {
+//   const roomUsersRepository = new RoomUsersRepository();
+
+//   const users = roomUsersRepository.getRecentUsers(context.bot.roomName);
+
+//   if (!users.length) {
+//     context.socket.sendRoomMessage("No recent users.");
+//     return;
+//   }
+
+//   const session = createSession({
+//     roomName: context.bot.roomName,
+//     sender: context.sender,
+//     type: "recent",
+//     items: users,
+//   });
+
+//   context.socket.sendRoomMessage(formatUsersPage("Recent users:", session));
+// }
 function handleRecentCommand(context) {
   const roomUsersRepository = new RoomUsersRepository();
 
@@ -101,9 +127,39 @@ function handleRecentCommand(context) {
     items: users,
   });
 
+  saveListActionSession({
+    roomName: context.bot.roomName,
+    sender: context.sender,
+    type: "recent",
+    items: users,
+    page: session.page || 0,
+  });
+
   context.socket.sendRoomMessage(formatUsersPage("Recent users:", session));
 }
+// function handleNextPageCommand(context) {
+//   const result = nextPage(context.bot.roomName, context.sender);
 
+//   if (!result.ok) {
+//     if (result.reason === "expired") {
+//       context.socket.sendRoomMessage("Page expired. Send !users or .r again.");
+//       return;
+//     }
+
+//     if (result.reason === "last_page") {
+//       context.socket.sendRoomMessage("No more pages.");
+//       return;
+//     }
+
+//     context.socket.sendRoomMessage("No active page.");
+//     return;
+//   }
+
+//   const title =
+//     result.session.type === "recent" ? "Recent users:" : "Current users:";
+
+//   context.socket.sendRoomMessage(formatUsersPage(title, result.session));
+// }
 function handleNextPageCommand(context) {
   const result = nextPage(context.bot.roomName, context.sender);
 
@@ -125,9 +181,21 @@ function handleNextPageCommand(context) {
   const title =
     result.session.type === "recent" ? "Recent users:" : "Current users:";
 
+  /*
+    نحدث جلسة أوامر الأرقام ونبدأ الدقيقة من جديد بعد .nx
+  */
+  saveListActionSession({
+    roomName: context.bot.roomName,
+    sender: context.sender,
+    type: result.session.type,
+    items: result.session.items || [],
+    page: result.session.page || 0,
+  });
+
+  refreshListActionSession(context.bot.roomName, context.sender);
+
   context.socket.sendRoomMessage(formatUsersPage(title, result.session));
 }
-
 function handleCommand(context) {
   const { text, socket, runtime } = context;
 
@@ -223,7 +291,13 @@ if (isUserLookupCommand(command)) {
 
 return;
   }
-
+if (command === "invite_user") {
+  handleInviteCommand(context).catch((err) => {
+    console.log("❌ Invite command error:", err.message);
+    context.socket.sendRoomMessage("Invite error.");
+  });
+  return;
+}
   /* =====================================================
      باقي الأوامر تحتاج owner/master الخاص ببوت التحكم
   ===================================================== */
