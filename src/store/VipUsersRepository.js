@@ -11,38 +11,8 @@ function makeKey(username) {
   return normalizeUsername(username);
 }
 
-function getUsernameFromArgs(arg1, arg2) {
-  /*
-    دعم الشكل الجديد:
-    isVip(username)
-
-    ودعم الشكل القديم:
-    isVip(roomName, username)
-  */
-  if (typeof arg2 !== "undefined") {
-    return String(arg2 || "").trim();
-  }
-
-  return String(arg1 || "").trim();
-}
-
-function getAddedByFromArgs(arg1, arg2, arg3) {
-  /*
-    الشكل الجديد:
-    addVip(username, addedBy)
-
-    الشكل القديم:
-    addVip(roomName, username, addedBy)
-  */
-  if (typeof arg3 !== "undefined") {
-    return String(arg3 || "system").trim();
-  }
-
-  if (typeof arg2 !== "undefined") {
-    return String(arg2 || "system").trim();
-  }
-
-  return "system";
+function clean(value) {
+  return String(value || "").trim();
 }
 
 class VipUsersRepository {
@@ -68,7 +38,10 @@ class VipUsersRepository {
     isVip(roomName, username)
   */
   isVip(arg1, arg2) {
-    const username = getUsernameFromArgs(arg1, arg2);
+    const username =
+      typeof arg2 !== "undefined"
+        ? clean(arg2) // old: isVip(roomName, username)
+        : clean(arg1); // new: isVip(username)
 
     if (!username) {
       return false;
@@ -84,10 +57,21 @@ class VipUsersRepository {
     يدعم:
     addVip(username, addedBy)
     addVip(roomName, username, addedBy)
+
+    مهم:
+    لو جاء 2 args => arg1 هو username و arg2 هو addedBy
+    لو جاء 3 args => arg2 هو username و arg3 هو addedBy
   */
   addVip(arg1, arg2, arg3) {
-    const username = getUsernameFromArgs(arg1, arg2);
-    const addedBy = getAddedByFromArgs(arg1, arg2, arg3);
+    const username =
+      typeof arg3 !== "undefined"
+        ? clean(arg2) // old: addVip(roomName, username, addedBy)
+        : clean(arg1); // new: addVip(username, addedBy)
+
+    const addedBy =
+      typeof arg3 !== "undefined"
+        ? clean(arg3) || "system"
+        : clean(arg2) || "system";
 
     if (!username) {
       return {
@@ -130,7 +114,10 @@ class VipUsersRepository {
     removeVip(roomName, username)
   */
   removeVip(arg1, arg2) {
-    const username = getUsernameFromArgs(arg1, arg2);
+    const username =
+      typeof arg2 !== "undefined"
+        ? clean(arg2) // old: removeVip(roomName, username)
+        : clean(arg1); // new: removeVip(username)
 
     if (!username) {
       return false;
@@ -159,7 +146,7 @@ class VipUsersRepository {
   }
 
   /*
-    دوال توافقية مباشرة لمن يستخدم أسماء قديمة.
+    دوال توافقية مباشرة لو عندك ملفات قديمة تستخدم أسماء قديمة.
   */
   getRoomVip() {
     return this.listVip();
