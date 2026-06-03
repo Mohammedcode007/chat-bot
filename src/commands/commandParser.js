@@ -113,6 +113,40 @@ function parseCommand(text) {
     };
   }
 }
+/*
+  Watch commands
+  watch@username
+  unwatch@username
+*/
+if (lowerRaw.startsWith("watch@")) {
+  const username = raw.slice(6).trim();
+
+  if (!username) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "watch_user",
+    args: [username],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw.startsWith("unwatch@")) {
+  const username = raw.slice(8).trim();
+
+  if (!username) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "unwatch_user",
+    args: [username],
+    hasPrefix: false,
+  };
+}
   // /*
   //   Controller room admin commands
   //   m@username = member

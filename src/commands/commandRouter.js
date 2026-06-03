@@ -15,6 +15,10 @@ const {
   handleUserLookupCommand,
 } = require("../features/userLookup/userLookup.commands");
 const {
+  isWatchCommand,
+  handleWatchCommand,
+} = require("../features/watch/watch.commands");
+const {
   createSession,
   nextPage,
   getPageItems,
@@ -208,6 +212,10 @@ function handleCommand(context) {
   context.parsed = parsed;
 
   const { command } = parsed;
+  if (isWatchCommand(command)) {
+  handleWatchCommand(context);
+  return;
+}
 if (isUserLookupCommand(command)) {
   handleUserLookupCommand(context);
   return;

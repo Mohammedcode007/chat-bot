@@ -8,7 +8,9 @@ const {
   extractRoomUserEvent,
   extractRoomUsersSnapshot,
 } = require("./ControllerBotEvents");
-
+const {
+  notifyWatchersOnJoin,
+} = require("../../features/watch/watch.commands");
 const { handleCommand } = require("../../commands/commandRouter");
 const { RoomUsersRepository } = require("../../store/RoomUsersRepository");
 
@@ -170,6 +172,11 @@ handleRoomUserJoinOrLeave(data) {
   const roomName = event.roomName || this.bot.roomName;
 
   if (event.action === "join") {
+    notifyWatchersOnJoin({
+  socket: this.socket,
+  username: event.username,
+  roomName,
+});
     this.roomUsersRepository.addUser(roomName, {
       username: event.username,
       role: event.role || "",

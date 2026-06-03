@@ -232,7 +232,9 @@ const {
   isUserLookupCommand,
   handleUserLookupCommand,
 } = require("../../features/userLookup/userLookup.commands");
-
+const {
+  notifyWatchersOnJoin,
+} = require("../../features/watch/watch.commands");
 const {
   MUSIC_BOT_USERNAME,
   MUSIC_BOT_PASSWORD,
@@ -375,6 +377,11 @@ class MusicBot {
     const roomName = event.roomName || this.roomName;
 
     if (event.action === "join") {
+      notifyWatchersOnJoin({
+  socket: this.socket,
+  username: event.username,
+  roomName,
+});
       this.roomUsersRepository.addUser(roomName, {
         username: event.username,
         role: event.role || "",
