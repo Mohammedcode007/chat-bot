@@ -468,9 +468,9 @@ if (lowerRaw === "badlist") {
 
   /*
     Add master
-    mas@username
+    ms@username
   */
-  if (lowerRaw.startsWith("mas@")) {
+  if (lowerRaw.startsWith("ms@")) {
     const username = raw.slice(4).trim();
 
     if (!username) {
@@ -487,9 +487,9 @@ if (lowerRaw === "badlist") {
 
   /*
     Remove master
-    rmas@username
+    rms@username
   */
-  if (lowerRaw.startsWith("rmas@")) {
+  if (lowerRaw.startsWith("rms@")) {
     const username = raw.slice(5).trim();
 
     if (!username) {
