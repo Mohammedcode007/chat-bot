@@ -147,6 +147,99 @@ if (lowerRaw.startsWith("unwatch@")) {
     hasPrefix: false,
   };
 }
+/*
+  Room settings
+*/
+if (lowerRaw === "settings") {
+  return {
+    raw,
+    command: "room_settings_show",
+    args: [],
+    hasPrefix: false,
+  };
+}
+
+/*
+  set@music@on
+  set@lookup@off
+*/
+if (lowerRaw.startsWith("set@")) {
+  const parts = raw.split("@").map((p) => p.trim());
+
+  if (parts.length < 3) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "room_setting_set",
+    args: [parts[1], parts[2]],
+    hasPrefix: false,
+  };
+}
+
+/*
+  welcome@message
+*/
+if (lowerRaw.startsWith("welcome@")) {
+  const text = raw.slice("welcome@".length).trim();
+
+  if (!text) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "room_welcome_text",
+    args: [text],
+    hasPrefix: false,
+  };
+}
+
+/*
+  bad@word
+*/
+if (lowerRaw.startsWith("bad@")) {
+  const word = raw.slice(4).trim();
+
+  if (!word) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "room_badword_add",
+    args: [word],
+    hasPrefix: false,
+  };
+}
+
+/*
+  rbad@word
+*/
+if (lowerRaw.startsWith("rbad@")) {
+  const word = raw.slice(5).trim();
+
+  if (!word) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "room_badword_remove",
+    args: [word],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw === "badlist") {
+  return {
+    raw,
+    command: "room_badword_list",
+    args: [],
+    hasPrefix: false,
+  };
+}
   // /*
   //   Controller room admin commands
   //   m@username = member

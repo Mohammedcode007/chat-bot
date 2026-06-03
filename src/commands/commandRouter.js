@@ -15,6 +15,14 @@ const {
   handleUserLookupCommand,
 } = require("../features/userLookup/userLookup.commands");
 const {
+  isRoomSettingsCommand,
+  handleRoomSettingsCommand,
+} = require("../features/roomSettings/roomSettings.commands");
+
+const {
+  isRoomFeatureEnabled,
+} = require("../features/roomSettings/roomSettings.guard");
+const {
   isWatchCommand,
   handleWatchCommand,
 } = require("../features/watch/watch.commands");
@@ -212,6 +220,15 @@ function handleCommand(context) {
   context.parsed = parsed;
 
   const { command } = parsed;
+  if (isUserLookupCommand(command)) {
+  if (!isRoomFeatureEnabled(context.bot.roomName, "lookupEnabled")) {
+    context.socket.sendRoomMessage("Lookup is disabled in this room.");
+    return;
+  }
+
+  handleUserLookupCommand(context);
+  return;
+}
   if (isWatchCommand(command)) {
   handleWatchCommand(context);
   return;
@@ -283,22 +300,27 @@ if (isUserLookupCommand(command)) {
      - بوت التحكم يرد بنفس منطق الأغاني.
   ===================================================== */
 
-  if (isMusicCommand(command)) {
-    if (
-      runtime &&
-      typeof runtime.hasMusicBot === "function" &&
-      runtime.hasMusicBot(context.bot.roomName)
-    ) {
-      return;
-    }
+if (isMusicCommand(command)) {
+  if (!isRoomFeatureEnabled(context.bot.roomName, "musicEnabled")) {
+    context.socket.sendRoomMessage("Music is disabled in this room.");
+    return;
+  }
+
+  if (
+    runtime &&
+    typeof runtime.hasMusicBot === "function" &&
+    runtime.hasMusicBot(context.bot.roomName)
+  ) {
+    return;
+  }
 
   handleMusicCommand(context).catch((err) => {
-  console.log("❌ Music command error:", err.message);
-  context.socket.sendRoomMessage("Music error.");
-});
+    console.log("❌ Music command error:", err.message);
+    context.socket.sendRoomMessage("Music error.");
+  });
 
-return;
-  }
+  return;
+}
 if (command === "invite_user") {
   handleInviteCommand(context).catch((err) => {
     console.log("❌ Invite command error:", err.message);
@@ -313,6 +335,10 @@ if (command === "invite_user") {
   if (!requirePermission(context)) {
     return;
   }
+  if (isRoomSettingsCommand(command)) {
+  handleRoomSettingsCommand(context);
+  return;
+}
 if (
   command === "control_member" ||
   command === "control_kick" ||
@@ -324,6 +350,10 @@ if (
   return;
 }
 if (command === "profile_lookup") {
+    if (!isRoomFeatureEnabled(context.bot.roomName, "profileEnabled")) {
+    context.socket.sendRoomMessage("Profile lookup is disabled in this room.");
+    return;
+  }
   handleProfileLookupCommand(context);
   return;
 }

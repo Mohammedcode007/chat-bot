@@ -14,6 +14,10 @@ const {
   notifyWatchersOnJoin,
 } = require("../../features/watch/watch.commands");
 const { handleCommand } = require("../../commands/commandRouter");
+const {
+  handleAutoBanRoleNoneOnJoin,
+  handleWelcomeOnJoin,
+} = require("../../features/roomSettings/roomSettings.guard");
 const { RoomUsersRepository } = require("../../store/RoomUsersRepository");
 
 class ControllerBot {
@@ -143,28 +147,44 @@ class ControllerBot {
       this.joined = true;
     }
   }
+handleRoomUsersSnapshot(data) {
+  const snapshot = extractRoomUsersSnapshot(data);
 
-  handleRoomUsersSnapshot(data) {
-    const snapshot = extractRoomUsersSnapshot(data);
-
-    if (!snapshot) {
-      return;
-    }
-
-    const roomName = snapshot.roomName || this.bot.roomName;
-
-    this.roomUsersRepository.replaceRoomUsers(roomName, snapshot.users);
-
-    const savedUsers = this.roomUsersRepository.getRoomUsers(roomName);
-
-    console.log("👥 [ROOM_USERS_SNAPSHOT_SAVED]", {
-      room: roomName,
-      receivedCount: snapshot.users.length,
-      savedCount: savedUsers.length,
-      users: savedUsers.map((u) => u.username),
-    });
+  if (!snapshot) {
+    return;
   }
 
+  const roomName = snapshot.roomName || this.bot.roomName;
+
+  this.roomUsersRepository.replaceRoomUsers(roomName, snapshot.users);
+
+  const savedUsers = this.roomUsersRepository.getRoomUsers(roomName);
+
+  /*
+    مهم:
+    عند دخول البوت للغرفة يأتي snapshot فيه users كاملة.
+    لذلك نفحص المستخدمين الموجودين بالفعل.
+    لو autoBanRoleNoneEnabled مفعّل، وأحدهم role none، يتم حظره.
+  */
+  savedUsers.forEach((user) => {
+    handleAutoBanRoleNoneOnJoin({
+      socket: this.socket,
+      roomName,
+      username: user.username,
+      role: user.role,
+    });
+  });
+
+  console.log("👥 [ROOM_USERS_SNAPSHOT_SAVED]", {
+    room: roomName,
+    receivedCount: snapshot.users.length,
+    savedCount: savedUsers.length,
+    users: savedUsers.map((u) => ({
+      username: u.username,
+      role: u.role,
+    })),
+  });
+}
 handleRoomUserJoinOrLeave(data) {
   const event = extractRoomUserEvent(data);
 
@@ -175,11 +195,6 @@ handleRoomUserJoinOrLeave(data) {
   const roomName = event.roomName || this.bot.roomName;
 
   if (event.action === "join") {
-    notifyWatchersOnJoin({
-  socket: this.socket,
-  username: event.username,
-  roomName,
-});
     this.roomUsersRepository.addUser(roomName, {
       username: event.username,
       role: event.role || "",
@@ -187,9 +202,41 @@ handleRoomUserJoinOrLeave(data) {
       photoUrl: event.photoUrl || "",
     });
 
+    /*
+      تنبيه watch@username
+    */
+    notifyWatchersOnJoin({
+      socket: this.socket,
+      username: event.username,
+      roomName,
+    });
+
+    /*
+      رسالة الترحيب حسب إعدادات الغرفة:
+      set@welcome@on
+      welcome@Welcome {user} to {room}
+    */
+    handleWelcomeOnJoin({
+      socket: this.socket,
+      roomName,
+      username: event.username,
+    });
+
+    /*
+      حظر تلقائي إذا دخل المستخدم برتبة none:
+      set@autoban_none@on
+    */
+    handleAutoBanRoleNoneOnJoin({
+      socket: this.socket,
+      roomName,
+      username: event.username,
+      role: event.role,
+    });
+
     console.log("➕ [ROOM_USER_JOIN]", {
       room: roomName,
       username: event.username,
+      role: event.role || "",
     });
 
     return;
@@ -212,6 +259,74 @@ handleRoomUserJoinOrLeave(data) {
     }
   }
 }
+  // handleRoomUsersSnapshot(data) {
+  //   const snapshot = extractRoomUsersSnapshot(data);
+
+  //   if (!snapshot) {
+  //     return;
+  //   }
+
+  //   const roomName = snapshot.roomName || this.bot.roomName;
+
+  //   this.roomUsersRepository.replaceRoomUsers(roomName, snapshot.users);
+
+  //   const savedUsers = this.roomUsersRepository.getRoomUsers(roomName);
+
+  //   console.log("👥 [ROOM_USERS_SNAPSHOT_SAVED]", {
+  //     room: roomName,
+  //     receivedCount: snapshot.users.length,
+  //     savedCount: savedUsers.length,
+  //     users: savedUsers.map((u) => u.username),
+  //   });
+  // }
+
+// handleRoomUserJoinOrLeave(data) {
+//   const event = extractRoomUserEvent(data);
+
+//   if (!event) {
+//     return;
+//   }
+
+//   const roomName = event.roomName || this.bot.roomName;
+
+//   if (event.action === "join") {
+//     notifyWatchersOnJoin({
+//   socket: this.socket,
+//   username: event.username,
+//   roomName,
+// });
+//     this.roomUsersRepository.addUser(roomName, {
+//       username: event.username,
+//       role: event.role || "",
+//       userId: event.userId || "",
+//       photoUrl: event.photoUrl || "",
+//     });
+
+//     console.log("➕ [ROOM_USER_JOIN]", {
+//       room: roomName,
+//       username: event.username,
+//     });
+
+//     return;
+//   }
+
+//   if (event.action === "leave") {
+//     this.roomUsersRepository.removeUser(roomName, event.username);
+
+//     console.log("➖ [ROOM_USER_LEAVE]", {
+//       room: roomName,
+//       username: event.username,
+//     });
+
+//     /*
+//       لو الخارج من الغرفة هو بوت التحكم نفسه
+//       يدخل مرة أخرى تلقائيًا
+//     */
+//     if (this.isSameBotUsername(event.username)) {
+//       this.rejoinRoom("controller_left_or_kicked");
+//     }
+//   }
+// }
   handleRoomCommand(data) {
     const incoming = extractIncomingMessage(data);
 

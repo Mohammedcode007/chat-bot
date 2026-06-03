@@ -1,4 +1,4 @@
-const LOG_PAGE_SIZE = 10;
+const LOG_PAGE_SIZE = 4;
 const LOG_SESSION_TTL_MS = 60 * 1000;
 
 const sessions = new Map();
