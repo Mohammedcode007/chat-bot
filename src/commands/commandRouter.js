@@ -21,7 +21,10 @@ const {
   isRoomSettingsCommand,
   handleRoomSettingsCommand,
 } = require("../features/roomSettings/roomSettings.commands");
-
+const {
+  isTransferPointsCommand,
+  handleTransferPointsCommand,
+} = require("../features/gamePoints/transferPoints.commands");
 const {
   isRoomFeatureEnabled,
 } = require("../features/roomSettings/roomSettings.guard");
@@ -204,6 +207,14 @@ function handleCommand(context) {
   context.parsed = parsed;
 
   const { command } = parsed;
+  /*
+  Game points transfer
+  tr@username@points
+*/
+if (isTransferPointsCommand(command)) {
+  handleTransferPointsCommand(context);
+  return;
+}
 /*
   Games
 */

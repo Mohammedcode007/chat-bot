@@ -782,6 +782,37 @@ if (/^[123]$/.test(lowerRaw)) {
     hasPrefix: false,
   };
 }
+/*
+  Transfer game points
+  tr@username@points
+*/
+if (lowerRaw.startsWith("tr@")) {
+  const rest = raw.slice(3).trim();
+
+  if (!rest) {
+    return null;
+  }
+
+  const parts = rest.split("@").map((item) => item.trim());
+
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const username = parts[0];
+  const points = parts[1];
+
+  if (!username || !points) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "transfer_points",
+    args: [username, points],
+    hasPrefix: false,
+  };
+}
   /*
     باقي الأوامر التي تبدأ بـ !
   */
