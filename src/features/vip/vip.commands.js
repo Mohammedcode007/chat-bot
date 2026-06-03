@@ -9,9 +9,9 @@ function isBotOwner(username) {
 }
 
 function handleVipCommand(context) {
-  const { bot, sender, socket, parsed } = context;
+  const { sender, socket, parsed } = context;
 
-  const username = parsed.args[0];
+  const username = String(parsed.args[0] || "").trim();
 
   if (!username) {
     socket.sendRoomMessage("Use: vip@username or unvip@username");
@@ -24,33 +24,27 @@ function handleVipCommand(context) {
   }
 
   if (parsed.command === "vip") {
-    const result = vipUsersRepository.addVip(
-      bot.roomName,
-      username,
-      sender
-    );
+    const result = vipUsersRepository.addVip(username, sender);
 
     if (result.alreadyVip) {
       socket.sendRoomMessage(`Already VIP: ${username}`);
       return;
     }
 
-    socket.sendRoomMessage(`VIP added: ${username}`);
+    socket.sendRoomMessage(`VIP added globally: ${username}`);
     return;
   }
 
   if (parsed.command === "unvip") {
-    const removed = vipUsersRepository.removeVip(
-      bot.roomName,
-      username
-    );
+    const removed = vipUsersRepository.removeVip(username);
 
     if (!removed) {
       socket.sendRoomMessage(`This user is not VIP: ${username}`);
       return;
     }
 
-    socket.sendRoomMessage(`VIP removed: ${username}`);
+    socket.sendRoomMessage(`VIP removed globally: ${username}`);
+    return;
   }
 }
 
