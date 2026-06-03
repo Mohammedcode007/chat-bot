@@ -439,7 +439,10 @@ const {
 const {
   isRoomFeatureEnabled,
 } = require("../features/roomSettings/roomSettings.guard");
-
+const {
+  isGameCommand,
+  handleGameCommand,
+} = require("../features/games/game.commands");
 const {
   isWatchCommand,
   handleWatchCommand,
@@ -615,7 +618,16 @@ function handleCommand(context) {
   context.parsed = parsed;
 
   const { command } = parsed;
+/*
+  Games
+*/
+if (isGameCommand(command)) {
+  const handled = handleGameCommand(context);
 
+  if (handled) {
+    return;
+  }
+}
   /*
     =====================================================
     1) Help pages

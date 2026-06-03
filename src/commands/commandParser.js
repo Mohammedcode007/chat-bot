@@ -719,6 +719,70 @@ if (lowerRaw === "badlist") {
     };
   }
   /*
+  Games:
+  bomb@username
+  فجر username
+  زحلق username
+  .s
+  1 / 2 / 3
+*/
+if (lowerRaw.startsWith("bomb@")) {
+  const username = raw.slice(5).trim();
+
+  if (!username) return null;
+
+  return {
+    raw,
+    command: "game_bomb",
+    args: [username],
+    hasPrefix: false,
+  };
+}
+
+if (raw.startsWith("فجر ")) {
+  const username = raw.slice("فجر ".length).trim();
+
+  if (!username) return null;
+
+  return {
+    raw,
+    command: "game_blast",
+    args: [username],
+    hasPrefix: false,
+  };
+}
+
+if (raw.startsWith("زحلق ")) {
+  const username = raw.slice("زحلق ".length).trim();
+
+  if (!username) return null;
+
+  return {
+    raw,
+    command: "game_blast",
+    args: [username],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw === ".s") {
+  return {
+    raw,
+    command: "game_spin",
+    args: [],
+    hasPrefix: false,
+  };
+}
+
+if (/^[123]$/.test(lowerRaw)) {
+  return {
+    raw,
+    command: "game_answer",
+    args: [lowerRaw],
+    hasPrefix: false,
+  };
+}
+  /*
     باقي الأوامر التي تبدأ بـ !
   */
   if (!raw.startsWith(COMMAND_PREFIX)) {
