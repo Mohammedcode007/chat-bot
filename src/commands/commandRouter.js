@@ -333,27 +333,41 @@ if (isGameCommand(command)) {
     لو بوت الأغاني موجود في نفس الغرفة، بوت التحكم لا يرد حتى لا يتكرر الرد
     =====================================================
   */
-  if (isMusicCommand(command)) {
-    if (!isRoomFeatureEnabled(context.bot.roomName, "musicEnabled")) {
-      context.socket.sendRoomMessage("Music is disabled in this room.");
-      return;
-    }
+if (isMusicCommand(command)) {
+  const hasMusicBot =
+    runtime &&
+    typeof runtime.hasMusicBot === "function" &&
+    runtime.hasMusicBot(context.bot.roomName);
 
-    if (
-      runtime &&
-      typeof runtime.hasMusicBot === "function" &&
-      runtime.hasMusicBot(context.bot.roomName)
-    ) {
-      return;
-    }
+  console.log("🎵 [MUSIC_ROUTER_CHECK]", {
+    botName: context.bot.username || context.bot.name,
+    room: context.bot.roomName,
+    sender: context.sender,
+    command,
+    args: context.parsed.args,
+    hasMusicBot,
+  });
 
-    handleMusicCommand(context).catch((err) => {
-      console.log("❌ Music command error:", err.message);
-      context.socket.sendRoomMessage("Music error.");
-    });
-
+  if (!isRoomFeatureEnabled(context.bot.roomName, "musicEnabled")) {
+    context.socket.sendRoomMessage("Music is disabled in this room.");
     return;
   }
+
+  if (hasMusicBot) {
+    console.log("🎵 [MUSIC_CONTROLLER_SKIP] Waiting for MusicBot.", {
+      room: context.bot.roomName,
+      command,
+    });
+    return;
+  }
+
+  handleMusicCommand(context).catch((err) => {
+    console.log("❌ Music command error:", err.message);
+    context.socket.sendRoomMessage("Music error.");
+  });
+
+  return;
+}
 
   /*
     =====================================================
