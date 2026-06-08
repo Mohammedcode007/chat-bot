@@ -813,6 +813,29 @@ if (lowerRaw.startsWith("tr@")) {
     hasPrefix: false,
   };
 }
+/*
+  Room state save / backup
+
+  .SAVE
+  .BACKUP
+*/
+if (lowerRaw === ".save") {
+  return {
+    raw,
+    command: "room_state_save",
+    args: [],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw === ".backup") {
+  return {
+    raw,
+    command: "room_state_backup",
+    args: [],
+    hasPrefix: false,
+  };
+}
   /*
     باقي الأوامر التي تبدأ بـ !
   */

@@ -11,7 +11,10 @@ const {
   handleStatus,
   requirePermission,
 } = require("./controllerCommands");
-
+const {
+  isRoomStateBackupCommand,
+  handleRoomStateBackupCommandRouter,
+} = require("../features/roomStateBackup/roomStateBackup.commands");
 const {
   isUserLookupCommand,
   handleUserLookupCommand,
@@ -325,6 +328,21 @@ if (isGameCommand(command)) {
     handleVipCommand(context);
     return;
   }
+  /*
+  Room state save / backup
+  .SAVE
+  .BACKUP
+
+  يعمل للماستر / الأونر فقط.
+*/
+if (isRoomStateBackupCommand(command)) {
+  if (!requirePermission(context)) {
+    return;
+  }
+
+  handleRoomStateBackupCommandRouter(context);
+  return;
+}
 
   /*
     =====================================================
