@@ -102,6 +102,18 @@ function uniqueNames(list) {
   return result;
 }
 
+function hasName(list, username) {
+  const target = normalizeForCheck(username);
+
+  return uniqueNames(list).some((name) => {
+    return normalizeForCheck(name) === target;
+  });
+}
+
+function mergeNames(...lists) {
+  return uniqueNames(lists.flat());
+}
+
 function isRoomStateBackupCommand(command) {
   return [
     "room_save_allow_add",
@@ -112,6 +124,11 @@ function isRoomStateBackupCommand(command) {
   ].includes(command);
 }
 
+/*
+  .SAVE / .BACKUP are allowed only for users inside .rs list.
+  Bot owner can manage .rs list, but cannot use .SAVE/.BACKUP
+  unless added to .rs list too.
+*/
 function canUseSaveBackup(roomName, sender) {
   const data = readRoomBackupFile(roomName);
   const senderKey = normalizeForCheck(sender);
@@ -189,9 +206,7 @@ function getFreshBotFromRepository(repository, bot) {
 
       return (
         bots.find((item) => {
-          return (
-            normalizeForCheck(item.roomName) === normalizeForCheck(bot.roomName)
-          );
+          return normalizeForCheck(item.roomName) === normalizeForCheck(bot.roomName);
         }) || bot
       );
     }
@@ -250,9 +265,7 @@ function saveBotToRepository(repository, bot, nextBot) {
 
       if (Array.isArray(all)) {
         const next = all.map((item) => {
-          if (
-            normalizeForCheck(item.roomName) === normalizeForCheck(bot.roomName)
-          ) {
+          if (normalizeForCheck(item.roomName) === normalizeForCheck(bot.roomName)) {
             return nextBot;
           }
 
@@ -322,7 +335,12 @@ function getRoomUsersByRole(roomName) {
       return;
     }
 
-    if (role === "blocked" || role === "banned" || role === "ban") {
+    if (
+      role === "blocked" ||
+      role === "banned" ||
+      role === "ban" ||
+      role === "outcast"
+    ) {
       blockeds.push(username);
       return;
     }
@@ -339,8 +357,6 @@ function getRoomUsersByRole(roomName) {
 }
 
 function getBannedUsersSafe(roomName) {
-  const banned = [];
-
   try {
     if (typeof roomUsersRepository.getBannedUsers === "function") {
       return uniqueNames(roomUsersRepository.getBannedUsers(roomName) || []);
@@ -353,7 +369,7 @@ function getBannedUsersSafe(roomName) {
     console.log("❌ [ROOM_BANNED_READ_ERROR]", err.message);
   }
 
-  return banned;
+  return [];
 }
 
 function buildCurrentState(context) {
@@ -380,7 +396,6 @@ function buildCurrentState(context) {
     owners: usersByRole.owners,
     admins: usersByRole.admins,
     members: usersByRole.members,
-
     blockeds: uniqueNames([...usersByRole.blockeds, ...banned]),
 
     settings: getRoomSettingsSafe(bot.roomName),
@@ -389,96 +404,200 @@ function buildCurrentState(context) {
 
 function formatSaveResult(state) {
   return [
-    "✅ تم حفظ ضبط الغرفة",
+    "✅ Room state saved successfully.",
     "",
-    `👑 Owner bot: ${state.owner.length}`,
+    `👑 Bot owner: ${state.owner.length}`,
     `🧩 Masters: ${state.masters.length}`,
-    `⭐ Owners: ${state.owners.length}`,
-    `🛡️ Admins: ${state.admins.length}`,
-    `👤 Members: ${state.members.length}`,
-    `🚫 Blocked: ${state.blockeds.length}`,
+    `⭐ Room owners: ${state.owners.length}`,
+    `🛡️ Room admins: ${state.admins.length}`,
+    `👤 Room members: ${state.members.length}`,
+    `🚫 Blocked users: ${state.blockeds.length}`,
     "",
-    `Date: ${new Date(state.savedAt).toLocaleString()}`,
+    `Saved at: ${new Date(state.savedAt).toLocaleString()}`,
     "",
-    ".BACKUP للاسترجاع",
+    "Use .BACKUP to restore this state.",
   ].join("\n");
 }
 
-function callSocketRole(socket, methods, username, roomName) {
-  for (const method of methods) {
-    if (typeof socket[method] === "function") {
-      try {
-        const result = socket[method](username, roomName);
-
-        return result !== false;
-      } catch (err) {
-        console.log("❌ [ROLE_RESTORE_ERROR]", {
-          method,
-          username,
-          message: err.message,
-        });
-      }
-    }
+/*
+  These methods match your SocketClient:
+  sendRoomMember / sendRoomAdmin / sendRoomOwner / sendRoomBan
+*/
+function setMember(socket, username, roomName) {
+  if (typeof socket.sendRoomMember !== "function") {
+    console.log("❌ [RESTORE_ROLE_MISSING_METHOD] sendRoomMember");
+    return false;
   }
 
-  return false;
+  return socket.sendRoomMember(username, roomName) !== false;
+}
+
+function setAdmin(socket, username, roomName) {
+  if (typeof socket.sendRoomAdmin !== "function") {
+    console.log("❌ [RESTORE_ROLE_MISSING_METHOD] sendRoomAdmin");
+    return false;
+  }
+
+  return socket.sendRoomAdmin(username, roomName) !== false;
+}
+
+function setOwner(socket, username, roomName) {
+  if (typeof socket.sendRoomOwner !== "function") {
+    console.log("❌ [RESTORE_ROLE_MISSING_METHOD] sendRoomOwner");
+    return false;
+  }
+
+  return socket.sendRoomOwner(username, roomName) !== false;
+}
+
+function banUser(socket, username, roomName) {
+  if (typeof socket.sendRoomBan !== "function") {
+    console.log("❌ [RESTORE_ROLE_MISSING_METHOD] sendRoomBan");
+    return false;
+  }
+
+  return socket.sendRoomBan(username, roomName) !== false;
+}
+
+/*
+  No direct unban method.
+  We use member as a substitute.
+*/
+function unbanUser(socket, username, roomName) {
+  return setMember(socket, username, roomName);
+}
+
+function normalizeSavedStateRoles(state) {
+  const owners = uniqueNames(state.owners || []);
+  let admins = uniqueNames(state.admins || []);
+  let members = uniqueNames(state.members || []);
+  const blockeds = uniqueNames(state.blockeds || []);
+
+  /*
+    Priority:
+    blocked > owner > admin > member
+  */
+  admins = admins.filter((name) => {
+    return !hasName(owners, name) && !hasName(blockeds, name);
+  });
+
+  members = members.filter((name) => {
+    return (
+      !hasName(owners, name) &&
+      !hasName(admins, name) &&
+      !hasName(blockeds, name)
+    );
+  });
+
+  return {
+    owners,
+    admins,
+    members,
+    blockeds,
+  };
 }
 
 function restoreRoles(context, state) {
   const { socket, bot } = context;
 
+  const saved = normalizeSavedStateRoles(state);
+  const current = getRoomUsersByRole(bot.roomName);
+
   const result = {
+    unblocked: 0,
     owners: 0,
     admins: 0,
     members: 0,
     blockeds: 0,
   };
 
-  uniqueNames(state.members).forEach((username) => {
-    const ok = callSocketRole(
-      socket,
-      ["sendRoomMember", "sendRoomSetMember", "sendRoomRoleMember"],
-      username,
-      bot.roomName
-    );
+  /*
+    Include current + saved users.
+    This is required when a user role changed after .SAVE.
+  */
+  const allKnownUsers = mergeNames(
+    current.owners,
+    current.admins,
+    current.members,
+    current.blockeds,
+    saved.owners,
+    saved.admins,
+    saved.members,
+    saved.blockeds
+  );
 
-    if (ok) result.members += 1;
+  /*
+    1) If someone is currently blocked but was not blocked in the saved state,
+       give them member as an unban substitute.
+  */
+  uniqueNames(current.blockeds).forEach((username) => {
+    if (!hasName(saved.blockeds, username)) {
+      const ok = unbanUser(socket, username, bot.roomName);
+
+      if (ok) {
+        result.unblocked += 1;
+      }
+    }
   });
 
-  uniqueNames(state.admins).forEach((username) => {
-    const ok = callSocketRole(
-      socket,
-      ["sendRoomAdmin", "sendRoomSetAdmin", "sendRoomRoleAdmin"],
-      username,
-      bot.roomName
-    );
+  /*
+    2) Reset all known non-blocked users to member first.
+       This fixes Owner -> Admin restore correctly.
+  */
+  allKnownUsers.forEach((username) => {
+    if (hasName(saved.blockeds, username)) {
+      return;
+    }
 
-    if (ok) result.admins += 1;
+    const ok = setMember(socket, username, bot.roomName);
+
+    if (ok) {
+      result.members += 1;
+    }
   });
 
-  uniqueNames(state.owners).forEach((username) => {
-    const ok = callSocketRole(
-      socket,
-      ["sendRoomOwner", "sendRoomSetOwner", "sendRoomRoleOwner"],
-      username,
-      bot.roomName
-    );
+  /*
+    3) Apply saved admins.
+  */
+  saved.admins.forEach((username) => {
+    const ok = setAdmin(socket, username, bot.roomName);
 
-    if (ok) result.owners += 1;
+    if (ok) {
+      result.admins += 1;
+    }
   });
 
-  uniqueNames(state.blockeds).forEach((username) => {
-    const ok = callSocketRole(
-      socket,
-      ["sendRoomBan", "sendRoomBlock", "sendRoomBanned"],
-      username,
-      bot.roomName
-    );
+  /*
+    4) Apply saved owners.
+  */
+  saved.owners.forEach((username) => {
+    const ok = setOwner(socket, username, bot.roomName);
 
-    if (ok) result.blockeds += 1;
+    if (ok) {
+      result.owners += 1;
+    }
   });
 
-  return result;
+  /*
+    5) Apply saved blocked users at the end.
+  */
+  saved.blockeds.forEach((username) => {
+    const ok = banUser(socket, username, bot.roomName);
+
+    if (ok) {
+      result.blockeds += 1;
+    }
+  });
+
+  return {
+    ...result,
+    expected: {
+      owners: saved.owners.length,
+      admins: saved.admins.length,
+      members: saved.members.length,
+      blockeds: saved.blockeds.length,
+    },
+  };
 }
 
 function restoreMasters(context, state) {
@@ -502,14 +621,14 @@ function handleAllowAdd(context) {
   const { bot, sender, socket, parsed } = context;
 
   if (!isMainBotOwner(sender)) {
-    socket.sendRoomMessage("هذا الأمر لمالك البوت فقط.");
+    socket.sendRoomMessage("Only the bot owner can manage .rs list.");
     return true;
   }
 
   const username = String(parsed.args[0] || "").trim();
 
   if (!username) {
-    socket.sendRoomMessage("الاستخدام: .rs@username");
+    socket.sendRoomMessage("Usage: .rs@username");
     return true;
   }
 
@@ -519,7 +638,7 @@ function handleAllowAdd(context) {
 
   writeRoomBackupFile(bot.roomName, data);
 
-  socket.sendRoomMessage(`✅ تم السماح له بالحفظ والباك اب لهذه الغرفة: ${username}`);
+  socket.sendRoomMessage(`✅ Backup access granted in this room: ${username}`);
   return true;
 }
 
@@ -527,14 +646,14 @@ function handleAllowRemove(context) {
   const { bot, sender, socket, parsed } = context;
 
   if (!isMainBotOwner(sender)) {
-    socket.sendRoomMessage("هذا الأمر لمالك البوت فقط.");
+    socket.sendRoomMessage("Only the bot owner can manage .rs list.");
     return true;
   }
 
   const username = String(parsed.args[0] || "").trim();
 
   if (!username) {
-    socket.sendRoomMessage("الاستخدام: .rrs@username");
+    socket.sendRoomMessage("Usage: .rrs@username");
     return true;
   }
 
@@ -547,7 +666,7 @@ function handleAllowRemove(context) {
 
   writeRoomBackupFile(bot.roomName, data);
 
-  socket.sendRoomMessage(`✅ تم حذف السماح من هذه الغرفة: ${username}`);
+  socket.sendRoomMessage(`✅ Backup access removed in this room: ${username}`);
   return true;
 }
 
@@ -555,7 +674,7 @@ function handleAllowList(context) {
   const { bot, sender, socket } = context;
 
   if (!isMainBotOwner(sender)) {
-    socket.sendRoomMessage("هذا الأمر لمالك البوت فقط.");
+    socket.sendRoomMessage("Only the bot owner can view .rs list.");
     return true;
   }
 
@@ -563,13 +682,13 @@ function handleAllowList(context) {
   const list = data.allowedSaveUsers || [];
 
   if (!list.length) {
-    socket.sendRoomMessage("لا يوجد أشخاص مسموح لهم في هذه الغرفة.");
+    socket.sendRoomMessage("No users are allowed to use .SAVE/.BACKUP in this room.");
     return true;
   }
 
   socket.sendRoomMessage(
     [
-      "📋 قائمة المسموح لهم بالحفظ والباك اب:",
+      "📋 Backup access list:",
       "",
       ...list.map((name, index) => `${index + 1}. ${name}`),
     ].join("\n")
@@ -582,11 +701,11 @@ function handleSave(context) {
   const { bot, sender, socket } = context;
 
   if (!canUseSaveBackup(bot.roomName, sender)) {
-    socket.sendRoomMessage("غير مسموح لك باستخدام .SAVE في هذه الغرفة.");
+    socket.sendRoomMessage("Access denied. You are not allowed to use .SAVE in this room.");
     return true;
   }
 
-  socket.sendRoomMessage("⏳ جاري حفظ ضبط الغرفة...");
+  socket.sendRoomMessage("⏳ Saving room state...");
 
   const data = readRoomBackupFile(bot.roomName);
   const state = buildCurrentState(context);
@@ -604,18 +723,18 @@ function handleBackup(context) {
   const { bot, sender, socket } = context;
 
   if (!canUseSaveBackup(bot.roomName, sender)) {
-    socket.sendRoomMessage("غير مسموح لك باستخدام .BACKUP في هذه الغرفة.");
+    socket.sendRoomMessage("Access denied. You are not allowed to use .BACKUP in this room.");
     return true;
   }
 
   const data = readRoomBackupFile(bot.roomName);
 
   if (!data.lastSave) {
-    socket.sendRoomMessage("لا توجد نسخة محفوظة. استخدم .SAVE أولًا.");
+    socket.sendRoomMessage("No saved room state found. Use .SAVE first.");
     return true;
   }
 
-  socket.sendRoomMessage("⏳ جاري استرجاع ضبط الغرفة...");
+  socket.sendRoomMessage("⏳ Restoring room state...");
 
   const state = data.lastSave;
 
@@ -625,17 +744,18 @@ function handleBackup(context) {
 
   socket.sendRoomMessage(
     [
-      "✅ تم استرجاع ضبط الغرفة",
+      "✅ Room state restored.",
       "",
-      `👑 Owner bot: ${state.owner.length}`,
+      `👑 Bot owner: ${state.owner.length}`,
       `🧩 Masters: ${state.masters.length} ${mastersSaved ? "ok" : "check"}`,
-      `⭐ Owners: ${roles.owners}/${state.owners.length}`,
-      `🛡️ Admins: ${roles.admins}/${state.admins.length}`,
-      `👤 Members: ${roles.members}/${state.members.length}`,
-      `🚫 Blocked: ${roles.blockeds}/${state.blockeds.length}`,
+      `⭐ Room owners: ${roles.owners}/${roles.expected.owners}`,
+      `🛡️ Room admins: ${roles.admins}/${roles.expected.admins}`,
+      `👤 Members reset: ${roles.members}`,
+      `🚫 Blocked users: ${roles.blockeds}/${roles.expected.blockeds}`,
+      `🔓 Restored from blocked to member: ${roles.unblocked}`,
       `⚙️ Settings: ${settingsSaved ? "ok" : "check"}`,
       "",
-      `Saved date: ${new Date(state.savedAt).toLocaleString()}`,
+      `Saved at: ${new Date(state.savedAt).toLocaleString()}`,
     ].join("\n")
   );
 
