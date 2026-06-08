@@ -3,6 +3,9 @@ const { ReconnectManager } = require("../../core/ReconnectManager");
 
 const { makeControllerBotProfile } = require("./ControllerBotProfile");
 const {
+  handleAutoPunishOnJoin,
+} = require("../../features/autoPunish/autoPunish.guard");
+const {
   handleLogsPrivateCommand,
 } = require("../../features/logs/logs.commands");
 const {
@@ -197,44 +200,67 @@ handleRoomUserJoinOrLeave(data) {
 
   const roomName = event.roomName || this.bot.roomName;
 
-  if (event.action === "join") {
-    this.roomUsersRepository.addUser(roomName, {
+if (event.action === "join") {
+  this.roomUsersRepository.addUser(roomName, {
+    username: event.username,
+    role: event.role || "",
+    userId: event.userId || "",
+    photoUrl: event.photoUrl || "",
+  });
+
+  /*
+    Auto punish:
+    ab@username = auto ban
+    ak@username = auto kick
+
+    مهم:
+    يكون قبل الترحيب حتى لا يرحب بشخص سيتم طرده/حظره.
+  */
+  const punished = handleAutoPunishOnJoin({
+    socket: this.socket,
+    roomName,
+    username: event.username,
+  });
+
+  if (punished) {
+    console.log("⚡ [AUTO_PUNISH_APPLIED_ON_JOIN]", {
+      room: roomName,
       username: event.username,
-      role: event.role || "",
-      userId: event.userId || "",
-      photoUrl: event.photoUrl || "",
     });
 
-    /*
-      تنبيه watch@username
-    */
-    notifyWatchersOnJoin({
-      socket: this.socket,
-      username: event.username,
-      roomName,
-    });
+    return;
+  }
 
-    /*
-      رسالة الترحيب حسب إعدادات الغرفة:
-      set@welcome@on
-      welcome@Welcome {user} to {room}
-    */
-    handleWelcomeOnJoin({
-      socket: this.socket,
-      roomName,
-      username: event.username,
-    });
+  /*
+    تنبيه watch@username
+  */
+  notifyWatchersOnJoin({
+    socket: this.socket,
+    username: event.username,
+    roomName,
+  });
 
-    /*
-      حظر تلقائي إذا دخل المستخدم برتبة none:
-      set@autoban_none@on
-    */
-    handleAutoBanRoleNoneOnJoin({
-      socket: this.socket,
-      roomName,
-      username: event.username,
-      role: event.role,
-    });
+  /*
+    رسالة الترحيب حسب إعدادات الغرفة:
+    set@welcome@on
+    welcome@Welcome {user} to {room}
+  */
+  handleWelcomeOnJoin({
+    socket: this.socket,
+    roomName,
+    username: event.username,
+  });
+
+  /*
+    حظر تلقائي إذا دخل المستخدم برتبة none:
+    set@autoban_none@on
+  */
+  handleAutoBanRoleNoneOnJoin({
+    socket: this.socket,
+    roomName,
+    username: event.username,
+    role: event.role,
+  });
 
     console.log("➕ [ROOM_USER_JOIN]", {
       room: roomName,
