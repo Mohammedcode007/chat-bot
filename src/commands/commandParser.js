@@ -470,39 +470,43 @@ if (lowerRaw === "badlist") {
     Add master
     ms@username
   */
-  if (lowerRaw.startsWith("ms@")) {
-    const username = raw.slice(4).trim();
+/*
+  Add master
+  ms@username
+*/
+if (lowerRaw.startsWith("ms@")) {
+  const username = raw.slice(3).trim();
 
-    if (!username) {
-      return null;
-    }
-
-    return {
-      raw,
-      command: "mas",
-      args: [username],
-      hasPrefix: false,
-    };
+  if (!username) {
+    return null;
   }
 
-  /*
-    Remove master
-    rms@username
-  */
-  if (lowerRaw.startsWith("rms@")) {
-    const username = raw.slice(5).trim();
+  return {
+    raw,
+    command: "mas",
+    args: [username],
+    hasPrefix: false,
+  };
+}
 
-    if (!username) {
-      return null;
-    }
+/*
+  Remove master
+  rms@username
+*/
+if (lowerRaw.startsWith("rms@")) {
+  const username = raw.slice(4).trim();
 
-    return {
-      raw,
-      command: "rmas",
-      args: [username],
-      hasPrefix: false,
-    };
+  if (!username) {
+    return null;
   }
+
+  return {
+    raw,
+    command: "rmas",
+    args: [username],
+    hasPrefix: false,
+  };
+}
   if (lowerRaw.startsWith("تشغيل ")) {
     const songName = raw.slice("تشغيل ".length).trim();
 
