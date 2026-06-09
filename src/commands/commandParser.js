@@ -470,39 +470,43 @@ if (lowerRaw === "badlist") {
     Add master
     ms@username
   */
-  if (lowerRaw.startsWith("ms@")) {
-    const username = raw.slice(4).trim();
+/*
+  Add master
+  ms@username
+*/
+if (lowerRaw.startsWith("ms@")) {
+  const username = raw.slice(3).trim();
 
-    if (!username) {
-      return null;
-    }
-
-    return {
-      raw,
-      command: "mas",
-      args: [username],
-      hasPrefix: false,
-    };
+  if (!username) {
+    return null;
   }
 
-  /*
-    Remove master
-    rms@username
-  */
-  if (lowerRaw.startsWith("rms@")) {
-    const username = raw.slice(5).trim();
+  return {
+    raw,
+    command: "mas",
+    args: [username],
+    hasPrefix: false,
+  };
+}
 
-    if (!username) {
-      return null;
-    }
+/*
+  Remove master
+  rms@username
+*/
+if (lowerRaw.startsWith("rms@")) {
+  const username = raw.slice(4).trim();
 
-    return {
-      raw,
-      command: "rmas",
-      args: [username],
-      hasPrefix: false,
-    };
+  if (!username) {
+    return null;
   }
+
+  return {
+    raw,
+    command: "rmas",
+    args: [username],
+    hasPrefix: false,
+  };
+}
   if (lowerRaw.startsWith("تشغيل ")) {
     const songName = raw.slice("تشغيل ".length).trim();
 
@@ -814,11 +818,128 @@ if (lowerRaw.startsWith("tr@")) {
   };
 }
 /*
+  Auto punish:
+  ab@username  = auto ban
+  rab@username = remove auto ban
+  abl          = list auto ban
+
+  ak@username  = auto kick
+  rak@username = remove auto kick
+  akl          = list auto kick
+*/
+if (lowerRaw.startsWith("ab@")) {
+  const username = raw.slice(3).trim();
+
+  if (!username) return null;
+
+  return {
+    raw,
+    command: "auto_ban_add",
+    args: [username],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw.startsWith("rab@")) {
+  const username = raw.slice(4).trim();
+
+  if (!username) return null;
+
+  return {
+    raw,
+    command: "auto_ban_remove",
+    args: [username],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw === "abl") {
+  return {
+    raw,
+    command: "auto_ban_list",
+    args: [],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw.startsWith("ak@")) {
+  const username = raw.slice(3).trim();
+
+  if (!username) return null;
+
+  return {
+    raw,
+    command: "auto_kick_add",
+    args: [username],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw.startsWith("rak@")) {
+  const username = raw.slice(4).trim();
+
+  if (!username) return null;
+
+  return {
+    raw,
+    command: "auto_kick_remove",
+    args: [username],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw === "akl") {
+  return {
+    raw,
+    command: "auto_kick_list",
+    args: [],
+    hasPrefix: false,
+  };
+}
+/*
   Room state save / backup
 
-  .SAVE
-  .BACKUP
+  .rs@username   allow user for .SAVE / .BACKUP in this room
+  .rrs@username  remove allowed user
+  .rsl           list allowed users
+  .SAVE          save room state
+  .BACKUP        restore saved room state
 */
+if (lowerRaw.startsWith(".rs@")) {
+  const username = raw.slice(4).trim();
+
+  if (!username) return null;
+
+  return {
+    raw,
+    command: "room_save_allow_add",
+    args: [username],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw.startsWith(".rrs@")) {
+  const username = raw.slice(5).trim();
+
+  if (!username) return null;
+
+  return {
+    raw,
+    command: "room_save_allow_remove",
+    args: [username],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw === ".rsl") {
+  return {
+    raw,
+    command: "room_save_allow_list",
+    args: [],
+    hasPrefix: false,
+  };
+}
+
 if (lowerRaw === ".save") {
   return {
     raw,

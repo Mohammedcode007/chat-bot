@@ -3,7 +3,6 @@
 //   resolveTargetFromSession,
 // } = require("../listActions/listActionSessions");
 
-// const { normalizeUsername } = require("../../utils/text");
 // const { VipUsersRepository } = require("../../store/VipUsersRepository");
 // const { ControlLogsRepository } = require("../../store/ControlLogsRepository");
 
@@ -18,25 +17,14 @@
 //   return String(parsed?.args?.[0] || "").trim();
 // }
 
-// function normalizeForCheck(value) {
-//   return normalizeUsername(value)
-//     .replace(/\s+/g, "")
-//     .replace(/^@+/, "");
-// }
-
+// /*
+//   VIP أصبح عام على مستوى البوت.
+//   لذلك لا نقرأ vipUsers.json يدويًا هنا.
+//   نستخدم الدالة الجديدة:
+//   vipUsersRepository.isVip(username)
+// */
 // function isVipAnywhere(username) {
-//   const target = normalizeForCheck(username);
-//   const data = vipUsersRepository.getAll();
-
-//   return Object.values(data || {}).some((roomVipList) => {
-//     if (!Array.isArray(roomVipList)) {
-//       return false;
-//     }
-
-//     return roomVipList.some((item) => {
-//       return normalizeForCheck(item.username) === target;
-//     });
-//   });
+//   return vipUsersRepository.isVip(username);
 // }
 
 // function getActionInfo(command) {
@@ -168,7 +156,7 @@
 //     حماية VIP حسب إعداد الغرفة:
 
 //     set@vipprotect@on
-//     يمنع التحكم في VIP.
+//     يمنع التحكم في أي مستخدم VIP عام.
 
 //     set@vipprotect@off
 //     يسمح بتنفيذ أوامر التحكم على VIP.
@@ -237,12 +225,15 @@
 // module.exports = {
 //   handleControllerControlCommand,
 // };
+
 const {
   resolveTargetFromSession,
 } = require("../listActions/listActionSessions");
 
+const { normalizeUsername } = require("../../utils/text");
 const { VipUsersRepository } = require("../../store/VipUsersRepository");
 const { ControlLogsRepository } = require("../../store/ControlLogsRepository");
+const { RoomUsersRepository } = require("../../store/RoomUsersRepository");
 
 const {
   isRoomFeatureEnabled,
@@ -250,16 +241,20 @@ const {
 
 const vipUsersRepository = new VipUsersRepository();
 const controlLogsRepository = new ControlLogsRepository();
+const roomUsersRepository = new RoomUsersRepository();
 
 function getTargetUsername(parsed) {
   return String(parsed?.args?.[0] || "").trim();
 }
 
+function normalizeForCheck(value) {
+  return normalizeUsername(value)
+    .replace(/\s+/g, "")
+    .replace(/^@+/, "");
+}
+
 /*
-  VIP أصبح عام على مستوى البوت.
-  لذلك لا نقرأ vipUsers.json يدويًا هنا.
-  نستخدم الدالة الجديدة:
-  vipUsersRepository.isVip(username)
+  VIP عام على مستوى البوت.
 */
 function isVipAnywhere(username) {
   return vipUsersRepository.isVip(username);
@@ -271,30 +266,35 @@ function getActionInfo(command) {
       label: "Member",
       method: "sendRoomMember",
       logAction: "member",
+      savedRole: "member",
     },
 
     control_kick: {
       label: "Kick",
       method: "sendRoomKick",
       logAction: "kick",
+      savedRole: "removed",
     },
 
     control_ban: {
       label: "Ban",
       method: "sendRoomBan",
       logAction: "ban",
+      savedRole: "outcast",
     },
 
     control_owner: {
       label: "Owner",
       method: "sendRoomOwner",
       logAction: "owner",
+      savedRole: "owner",
     },
 
     control_admin: {
       label: "Admin",
       method: "sendRoomAdmin",
       logAction: "admin",
+      savedRole: "admin",
     },
   };
 
@@ -336,6 +336,87 @@ function logControlAction({ bot, sender, action, target }) {
     });
   } catch (err) {
     console.log("❌ Failed to write control log:", err.message);
+  }
+}
+
+/*
+  مهم جدًا:
+  هذه الدالة تجعل .SAVE يرى آخر رتبة بعد:
+  o@user
+  a@user
+  m@user
+  b@user
+
+  لأن .SAVE يقرأ من RoomUsersRepository.
+*/
+function syncRoomUserRole({ roomName, username, savedRole }) {
+  if (!roomName || !username || !savedRole) {
+    return;
+  }
+
+  try {
+    const cleanUsername = String(username || "").trim();
+    const target = normalizeForCheck(cleanUsername);
+
+    const users =
+      typeof roomUsersRepository.getRoomUsers === "function"
+        ? roomUsersRepository.getRoomUsers(roomName) || []
+        : [];
+
+    let nextUsers = users.filter((user) => {
+      return normalizeForCheck(user.username) !== target;
+    });
+
+    /*
+      Kick يعني المستخدم خرج من الغرفة.
+      لذلك نحذفه من القائمة المحلية.
+    */
+    if (savedRole === "removed") {
+      if (typeof roomUsersRepository.replaceRoomUsers === "function") {
+        roomUsersRepository.replaceRoomUsers(roomName, nextUsers);
+      } else if (typeof roomUsersRepository.removeUser === "function") {
+        roomUsersRepository.removeUser(roomName, cleanUsername);
+      }
+
+      console.log("🧩 [ROOM_USER_ROLE_SYNC]", {
+        roomName,
+        username: cleanUsername,
+        savedRole: "removed",
+      });
+
+      return;
+    }
+
+    /*
+      Ban يتم حفظه outcast.
+      وملف .SAVE يعتبر outcast ضمن blocked users.
+    */
+    nextUsers.push({
+      username: cleanUsername,
+      role: savedRole,
+      userId: "",
+      photoUrl: "",
+      updatedAt: new Date().toISOString(),
+    });
+
+    if (typeof roomUsersRepository.replaceRoomUsers === "function") {
+      roomUsersRepository.replaceRoomUsers(roomName, nextUsers);
+    } else if (typeof roomUsersRepository.addUser === "function") {
+      roomUsersRepository.addUser(roomName, {
+        username: cleanUsername,
+        role: savedRole,
+        userId: "",
+        photoUrl: "",
+      });
+    }
+
+    console.log("🧩 [ROOM_USER_ROLE_SYNC]", {
+      roomName,
+      username: cleanUsername,
+      savedRole,
+    });
+  } catch (err) {
+    console.log("❌ [ROOM_USER_ROLE_SYNC_ERROR]", err.message);
   }
 }
 
@@ -419,6 +500,17 @@ function handleControllerControlCommand(context) {
 
     if (sent) {
       successCount += 1;
+
+      /*
+        الإصلاح الأساسي:
+        بعد نجاح تغيير الرتبة فعليًا، نحدث التخزين المحلي
+        حتى .SAVE يحفظ آخر حالة صحيحة.
+      */
+      syncRoomUserRole({
+        roomName: bot.roomName,
+        username,
+        savedRole: action.savedRole,
+      });
 
       logControlAction({
         bot,

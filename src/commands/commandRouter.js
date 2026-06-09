@@ -16,6 +16,10 @@ const {
   handleRoomStateBackupCommandRouter,
 } = require("../features/roomStateBackup/roomStateBackup.commands");
 const {
+  isAutoPunishCommand,
+  handleAutoPunishCommand,
+} = require("../features/autoPunish/autoPunish.commands");
+const {
   isUserLookupCommand,
   handleUserLookupCommand,
 } = require("../features/userLookup/userLookup.commands");
@@ -214,20 +218,20 @@ function handleCommand(context) {
   Game points transfer
   tr@username@points
 */
-if (isTransferPointsCommand(command)) {
-  handleTransferPointsCommand(context);
-  return;
-}
-/*
-  Games
-*/
-if (isGameCommand(command)) {
-  const handled = handleGameCommand(context);
-
-  if (handled) {
+  if (isTransferPointsCommand(command)) {
+    handleTransferPointsCommand(context);
     return;
   }
-}
+  /*
+    Games
+  */
+  if (isGameCommand(command)) {
+    const handled = handleGameCommand(context);
+
+    if (handled) {
+      return;
+    }
+  }
   /*
     =====================================================
     1) Help pages
@@ -260,7 +264,15 @@ if (isGameCommand(command)) {
     handleRoomSettingsCommand(context);
     return;
   }
-
+/*
+  Auto punish:
+  ab@username / rab@username / abl
+  ak@username / rak@username / akl
+*/
+if (isAutoPunishCommand(command)) {
+  handleAutoPunishCommand(context);
+  return;
+}
   /*
     =====================================================
     3) User lookup
@@ -328,22 +340,18 @@ if (isGameCommand(command)) {
     handleVipCommand(context);
     return;
   }
-  /*
+/*
   Room state save / backup
+  .rs@username
+  .rrs@username
+  .rsl
   .SAVE
   .BACKUP
-
-  يعمل للماستر / الأونر فقط.
 */
 if (isRoomStateBackupCommand(command)) {
-  if (!requirePermission(context)) {
-    return;
-  }
-
   handleRoomStateBackupCommandRouter(context);
   return;
 }
-
   /*
     =====================================================
     8) Music
@@ -351,41 +359,41 @@ if (isRoomStateBackupCommand(command)) {
     لو بوت الأغاني موجود في نفس الغرفة، بوت التحكم لا يرد حتى لا يتكرر الرد
     =====================================================
   */
-if (isMusicCommand(command)) {
-  const hasMusicBot =
-    runtime &&
-    typeof runtime.hasMusicBot === "function" &&
-    runtime.hasMusicBot(context.bot.roomName);
+  if (isMusicCommand(command)) {
+    const hasMusicBot =
+      runtime &&
+      typeof runtime.hasMusicBot === "function" &&
+      runtime.hasMusicBot(context.bot.roomName);
 
-  console.log("🎵 [MUSIC_ROUTER_CHECK]", {
-    botName: context.bot.username || context.bot.name,
-    room: context.bot.roomName,
-    sender: context.sender,
-    command,
-    args: context.parsed.args,
-    hasMusicBot,
-  });
-
-  if (!isRoomFeatureEnabled(context.bot.roomName, "musicEnabled")) {
-    context.socket.sendRoomMessage("Music is disabled in this room.");
-    return;
-  }
-
-  if (hasMusicBot) {
-    console.log("🎵 [MUSIC_CONTROLLER_SKIP] Waiting for MusicBot.", {
+    console.log("🎵 [MUSIC_ROUTER_CHECK]", {
+      botName: context.bot.username || context.bot.name,
       room: context.bot.roomName,
+      sender: context.sender,
       command,
+      args: context.parsed.args,
+      hasMusicBot,
     });
+
+    if (!isRoomFeatureEnabled(context.bot.roomName, "musicEnabled")) {
+      context.socket.sendRoomMessage("Music is disabled in this room.");
+      return;
+    }
+
+    if (hasMusicBot) {
+      console.log("🎵 [MUSIC_CONTROLLER_SKIP] Waiting for MusicBot.", {
+        room: context.bot.roomName,
+        command,
+      });
+      return;
+    }
+
+    handleMusicCommand(context).catch((err) => {
+      console.log("❌ Music command error:", err.message);
+      context.socket.sendRoomMessage("Music error.");
+    });
+
     return;
   }
-
-  handleMusicCommand(context).catch((err) => {
-    console.log("❌ Music command error:", err.message);
-    context.socket.sendRoomMessage("Music error.");
-  });
-
-  return;
-}
 
   /*
     =====================================================
