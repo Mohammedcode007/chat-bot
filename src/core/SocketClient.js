@@ -1,7 +1,7 @@
 
 
 const WebSocket = require("ws");
-
+const { SocksProxyAgent } = require("socks-proxy-agent");
 const {
   WS_URL,
   BOT_SESSION,
@@ -16,7 +16,19 @@ const { normalizeUsername } = require("../utils/text");
 const { RoomUsersRepository } = require("../store/RoomUsersRepository");
 
 const roomUsersRepository = new RoomUsersRepository();
+const CHAT_PROXY = String(process.env.CHAT_PROXY || "").trim();
 
+function createWebSocketOptions() {
+  if (!CHAT_PROXY) {
+    return {};
+  }
+
+  console.log("🌐 [CHAT_PROXY_ENABLED]", CHAT_PROXY);
+
+  return {
+    agent: new SocksProxyAgent(CHAT_PROXY),
+  };
+}
 function normalizeForCheck(value) {
   return normalizeUsername(value)
     .replace(/\s+/g, "")
@@ -140,8 +152,7 @@ class SocketClient {
     console.log(`🔌 Connecting socket: ${this.username} | type=${this.type}`);
     console.log("🌐 WS_URL =", WS_URL);
 
-    this.ws = new WebSocket(WS_URL);
-
+this.ws = new WebSocket(WS_URL, createWebSocketOptions());
     this.ws.on("open", () => {
       console.log(`🟢 Socket opened: ${this.username}`);
 
