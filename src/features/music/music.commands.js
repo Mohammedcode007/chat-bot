@@ -533,10 +533,10 @@ async function handlePlaySong(context) {
     customMessage: "",
   });
 
-if (!created.ok && created.reason === "cooldown") {
-  sendRoomTextSafe(socket, `Please wait ${created.waitSeconds}s.`);
-  return;
-}
+  if (!created.ok && created.reason === "cooldown") {
+    sendRoomTextSafe(socket, `Please wait ${created.waitSeconds}s.`);
+    return;
+  }
 
   if (!created.ok) {
     sendRoomTextSafe(socket, "Song failed.");
@@ -562,159 +562,70 @@ if (!created.ok && created.reason === "cooldown") {
 
   تعمل مثل تشغيل، لكن ترسل في كل الغرف.
 */
-async function handleSongGlobal(context) {
-  const { bot, sender, socket, parsed, runtime } = context;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  const songName = parsed.args.join(" ").trim();
+async function handleSongGlobal(context) {
+  const { bot, socket, parsed } = context;
+
+  const songName = String(parsed.args.join(" ") || "").trim();
 
   if (!songName) {
-    sendRoomTextSafe(socket, "Song name?");
+    socket.sendRoomMessage("Use: .ps song name");
     return;
   }
 
-  const senderName = getSenderName(sender);
+  const targets = getBroadcastTargets(context);
 
-const customMessage =
-  parsed && parsed.meta && parsed.meta.customMessage
-    ? String(parsed.meta.customMessage).trim()
-    : "";
-
-const shareTo =
-  parsed && parsed.meta && parsed.meta.shareTo
-    ? String(parsed.meta.shareTo).trim()
-    : "";
-
-  /*
-    هنا فقط يتم فحص الانتظار.
-    يعني لو المستخدم شغل أغنية أخرى خلال المدة، يرسل رسالة انتظار فقط.
-  */
-  const cooldown = songLikesRepository.canCreateSong(senderName);
-
-  if (!cooldown.ok && cooldown.reason === "cooldown") {
-    sendRoomTextSafe(socket, `Please wait ${cooldown.waitSeconds}s.`);
+  if (!targets.length) {
+    socket.sendRoomMessage("No music rooms found.");
     return;
   }
-
-  /*
-    لا نرسل Loading إلا بعد التأكد أن المستخدم مسموح له يشغل أغنية.
-  */
-  sendRoomTextSafe(socket, `Loading: ${songName}`);
 
   const prepared = await prepareSong({
     songName,
-    sender,
+    sender: bot.username,
     roomName: bot.roomName,
   });
 
   if (!prepared.ok) {
-    sendRoomTextSafe(socket, prepared.error || "Song failed.");
+    socket.sendRoomMessage(prepared.error || "Song failed.");
     return;
   }
 
-  const targets = getBroadcastTargets(runtime, context);
-
-  if (!targets.length) {
-    sendRoomTextSafe(socket, "No connected rooms.");
-    return;
-  }
-
-  const sourceRoomName = bot.roomName;
-
-  /*
-    مهم جدًا:
-    إنشاء الأغنية مرة واحدة فقط.
-    لا تضع createSong داخل for.
-  */
-  const created = songLikesRepository.createSong({
+  const message = formatSongDetails({
+    id: Date.now().toString(),
     songName: prepared.title,
-    roomName: sourceRoomName,
-    requestedBy: senderName,
+    requestedBy: bot.username,
+    roomName: bot.roomName,
     url: prepared.url,
-    customMessage,
   });
 
-  if (!created.ok && created.reason === "cooldown") {
-    sendRoomTextSafe(socket, `Please wait ${created.waitSeconds}s.`);
-    return;
-  }
+  const delayMs = Number(process.env.MUSIC_BROADCAST_DELAY_MS || 1000);
 
-  if (!created.ok) {
-    sendRoomTextSafe(socket, "Song failed.");
-    return;
-  }
+  socket.sendRoomMessage(`Sending to ${targets.length} rooms...`);
 
-const song = created.song;
-song.shareTo = shareTo;
+  for (let i = 0; i < targets.length; i++) {
+    const targetRoom = targets[i];
 
-const text = formatSongDetails(song);
+    try {
+      console.log(`🎵 [MUSIC_BROADCAST] ${i + 1}/${targets.length} -> ${targetRoom}`);
 
-  let sentCount = 0;
-  let musicCount = 0;
-  let controllerCount = 0;
+      socket.sendRoomAudioUrl(targetRoom, prepared.url, message);
 
-  for (const target of targets) {
-    const sentText = sendRoomTextSafe(target.socket, text);
-
-    if (prepared.url) {
-      const audioSent = sendRoomAudioSafe(target.socket, prepared.url);
-
-      if (!audioSent) {
-        console.log("❌ [GLOBAL_AUDIO_NOT_SENT]", {
-          sourceRoomName,
-          targetRoomName: target.roomName,
-          type: target.type,
-          url: prepared.url,
-        });
+      if (i < targets.length - 1) {
+        await sleep(delayMs);
       }
-    }
-
-    if (sentText) {
-      sentCount += 1;
-
-      if (target.type === "music") {
-        musicCount += 1;
-      }
-
-      if (target.type === "controller") {
-        controllerCount += 1;
-      }
+    } catch (err) {
+      console.log("❌ [MUSIC_BROADCAST_ERROR]", {
+        room: targetRoom,
+        message: err.message,
+      });
     }
   }
 
-  console.log("🎵 [SONG_GLOBAL_DONE]", {
-    command: parsed.command,
-    songName,
-    sourceRoomName,
-    sentCount,
-    musicCount,
-    controllerCount,
-  });
-if (shareTo) {
-  sendPrivateSafe(
-    socket,
-    shareTo,
-    [
-      "Song shared with you",
-      "",
-      song.songName,
-      "",
-      `From: ${senderName}`,
-      `Room: ${sourceRoomName}`,
-      "",
-      song.url || "",
-      "",
-      `like@${song.id}`,
-      "",
-      `com@${song.id}@msg`,
-    ]
-      .filter((v) => v !== null && v !== undefined && String(v).trim() !== "")
-      .join("\n")
-  );
-}
-  /*
-    بعد نجاح الإرسال، يرجع عدد الغرف فقط.
-  */
-  sendRoomTextSafe(socket, `Sent: ${sentCount}`);
+  socket.sendRoomMessage(`Sent to ${targets.length} rooms.`);
 }
 function handleLikeSong(context) {
   const { sender, socket, parsed } = context;
