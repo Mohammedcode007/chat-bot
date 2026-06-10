@@ -567,19 +567,27 @@ function sleep(ms) {
 }
 
 async function handleSongGlobal(context) {
-  const { bot, socket, parsed } = context;
+  const { bot, socket, parsed, runtime } = context;
 
   const songName = String(parsed.args.join(" ") || "").trim();
 
   if (!songName) {
-    socket.sendRoomMessage("Use: .ps song name");
+    sendRoomTextSafe(socket, "Use: .ps song name");
     return;
   }
 
-  const targets = getBroadcastTargets(context);
+  const targets = getBroadcastTargets(runtime, context);
+
+  console.log("🎵 [MUSIC_BROADCAST_TARGETS]", {
+    count: targets.length,
+    targets: targets.map((t) => ({
+      type: t.type,
+      roomName: t.roomName,
+    })),
+  });
 
   if (!targets.length) {
-    socket.sendRoomMessage("No music rooms found.");
+    sendRoomTextSafe(socket, "No music rooms found.");
     return;
   }
 
@@ -590,7 +598,7 @@ async function handleSongGlobal(context) {
   });
 
   if (!prepared.ok) {
-    socket.sendRoomMessage(prepared.error || "Song failed.");
+    sendRoomTextSafe(socket, prepared.error || "Song failed.");
     return;
   }
 
@@ -604,28 +612,44 @@ async function handleSongGlobal(context) {
 
   const delayMs = Number(process.env.MUSIC_BROADCAST_DELAY_MS || 1000);
 
-  socket.sendRoomMessage(`Sending to ${targets.length} rooms...`);
+  sendRoomTextSafe(socket, `Sending to ${targets.length} rooms...`);
 
   for (let i = 0; i < targets.length; i++) {
-    const targetRoom = targets[i];
+    const target = targets[i];
 
     try {
-      console.log(`🎵 [MUSIC_BROADCAST] ${i + 1}/${targets.length} -> ${targetRoom}`);
+      console.log("🎵 [MUSIC_BROADCAST_SEND]", {
+        index: i + 1,
+        total: targets.length,
+        type: target.type,
+        roomName: target.roomName,
+      });
 
-      socket.sendRoomAudioUrl(targetRoom, prepared.url, message);
+      sendRoomTextSafe(target.socket, message);
+
+      const audioSent = sendRoomAudioSafe(target.socket, prepared.url);
+
+      if (!audioSent) {
+        console.log("❌ [MUSIC_BROADCAST_AUDIO_FAILED]", {
+          type: target.type,
+          roomName: target.roomName,
+          url: prepared.url,
+        });
+      }
 
       if (i < targets.length - 1) {
         await sleep(delayMs);
       }
     } catch (err) {
       console.log("❌ [MUSIC_BROADCAST_ERROR]", {
-        room: targetRoom,
+        type: target.type,
+        roomName: target.roomName,
         message: err.message,
       });
     }
   }
 
-  socket.sendRoomMessage(`Sent to ${targets.length} rooms.`);
+  sendRoomTextSafe(socket, `Sent to ${targets.length} rooms.`);
 }
 function handleLikeSong(context) {
   const { sender, socket, parsed } = context;
