@@ -13,6 +13,8 @@ class SilentBot {
     this.socket = null;
     this.stopped = false;
     this.blockedFromRoom = false;
+    this.loginFailed = false;
+    this.joined = false;
 
     this.reconnectManager = new ReconnectManager();
   }
@@ -20,6 +22,8 @@ class SilentBot {
   start() {
     this.stopped = false;
     this.blockedFromRoom = false;
+    this.loginFailed = false;
+    this.joined = false;
 
     this.socket = new SocketClient({
       username: this.bot.username,
@@ -28,38 +32,16 @@ class SilentBot {
       type: "silent",
     });
 
+    /*
+      مهم:
+      لا تعمل join هنا.
+      onOpen معناه السوكيت فتح فقط، وليس أن login نجح.
+      الدخول للغرفة سيتم بعد login_event success فقط.
+    */
     this.socket.onOpen(() => {
       console.log(
-        `✅ Silent connected: ${this.bot.username} -> ${this.bot.roomName}`
+        `✅ Silent socket opened: ${this.bot.username} -> ${this.bot.roomName}`
       );
-
-      setTimeout(() => {
-        if (this.stopped || this.blockedFromRoom || !this.socket) {
-          return;
-        }
-
-        /*
-          مهم:
-          لا نمنع الدخول هنا لو الغرفة موجودة في blockedBotRooms.json.
-          لأن BotRuntime هو الذي يقرر:
-          - يجرب بعد restart لو BLOCKED_ROOM_RETRY_ON_STARTUP=1
-          - أو يمنع الدخول لو BLOCKED_ROOM_RETRY_ON_STARTUP=0
-
-          لو الحظر مازال موجود، السيرفر سيرسل room_unauthorized
-          وسنحفظه مرة أخرى ونوقف المحاولة.
-        */
-        console.log(`🚪 Silent trying to join room: ${this.bot.roomName}`);
-
-        this.socket.joinRoom(this.bot.roomName);
-
-        setTimeout(() => {
-          if (this.stopped || this.blockedFromRoom || !this.socket) {
-            return;
-          }
-
-          this.socket.updateProfile(makeSilentBotProfile(this.bot));
-        }, 1000);
-      }, 1000);
     });
 
     this.socket.onMessage((data) => {
@@ -73,11 +55,16 @@ class SilentBot {
         String(reason || "")
       );
 
-      /*
-        لو الحساب محظور/مرفوض من الغرفة لا تعمل reconnect.
-      */
       if (this.blockedFromRoom) {
         console.log("🚫 [SILENT_NO_RECONNECT_BLOCKED_ROOM]", {
+          username: this.bot.username,
+          roomName: this.bot.roomName,
+        });
+        return;
+      }
+
+      if (this.loginFailed) {
+        console.log("🚫 [SILENT_NO_RECONNECT_LOGIN_FAILED]", {
           username: this.bot.username,
           roomName: this.bot.roomName,
         });
@@ -98,8 +85,19 @@ class SilentBot {
 
   handleMessage(data) {
     /*
-      أول شيء:
-      لو السيرفر رفض دخول الغرفة، احفظ الحساب+الغرفة
+      لو login فشل، لا تعمل join ولا profile_update.
+    */
+    if (this.handleLoginFailed(data)) {
+      return;
+    }
+
+    /*
+      بعد login success فقط يدخل الغرفة.
+    */
+    this.handleLoginSuccess(data);
+
+    /*
+      لو السيرفر رفض دخول الغرفة، احفظ الحساب + الغرفة
       ولا تكمل rejoin.
     */
     if (this.handleRoomReject(data)) {
@@ -108,12 +106,92 @@ class SilentBot {
 
     /*
       لو دخل بنجاح بعد restart والحظر كان اتفك،
-      احذف الحساب+الغرفة من blockedBotRooms.json.
+      احذف الحساب + الغرفة من blockedBotRooms.json.
     */
     this.handleRoomJoinSuccess(data);
 
     handleSilentBotMessage(data);
     this.handleRoomUserJoinOrLeave(data);
+  }
+
+  handleLoginFailed(data) {
+    if (
+      data &&
+      data.handler === "login_event" &&
+      data.type === "failed"
+    ) {
+      this.loginFailed = true;
+      this.stopped = true;
+
+      console.log("❌ [SILENT_LOGIN_FAILED_STOPPED]", {
+        username: this.bot.username,
+        roomName: this.bot.roomName,
+        reason: data.reason || "unknown",
+      });
+
+      if (this.socket) {
+        this.socket.close();
+      }
+
+      return true;
+    }
+
+    return false;
+  }
+
+  handleLoginSuccess(data) {
+    if (
+      data &&
+      data.handler === "login_event" &&
+      data.type === "success" &&
+      !this.joined
+    ) {
+      this.joined = true;
+
+      console.log(`🔑 Login success for silent: ${this.bot.username}`);
+
+      setTimeout(() => {
+        if (
+          this.stopped ||
+          this.loginFailed ||
+          this.blockedFromRoom ||
+          !this.socket
+        ) {
+          return;
+        }
+
+        /*
+          مهم:
+          لا نمنع الدخول هنا لو الغرفة موجودة في blockedBotRooms.json.
+          لأن BotRuntime هو الذي يقرر:
+          - يجرب بعد restart لو BLOCKED_ROOM_RETRY_ON_STARTUP=1
+          - أو يمنع الدخول لو BLOCKED_ROOM_RETRY_ON_STARTUP=0
+
+          لو الحظر مازال موجود، السيرفر سيرسل room_unauthorized
+          وسنحفظه مرة أخرى ونوقف المحاولة.
+        */
+        console.log(`🚪 Silent trying to join room: ${this.bot.roomName}`);
+
+        this.socket.joinRoom(this.bot.roomName);
+
+        setTimeout(() => {
+          if (
+            this.stopped ||
+            this.loginFailed ||
+            this.blockedFromRoom ||
+            !this.socket
+          ) {
+            return;
+          }
+
+          this.socket.updateProfile(makeSilentBotProfile(this.bot));
+        }, 1000);
+      }, 1000);
+
+      return true;
+    }
+
+    return false;
   }
 
   handleRoomReject(data) {
@@ -182,7 +260,12 @@ class SilentBot {
   }
 
   rejoinRoom(reason = "unknown") {
-    if (this.stopped || this.blockedFromRoom || !this.socket) {
+    if (
+      this.stopped ||
+      this.loginFailed ||
+      this.blockedFromRoom ||
+      !this.socket
+    ) {
       return;
     }
 
@@ -221,14 +304,24 @@ class SilentBot {
     });
 
     setTimeout(() => {
-      if (this.stopped || this.blockedFromRoom || !this.socket) {
+      if (
+        this.stopped ||
+        this.loginFailed ||
+        this.blockedFromRoom ||
+        !this.socket
+      ) {
         return;
       }
 
       this.socket.joinRoom(this.bot.roomName);
 
       setTimeout(() => {
-        if (this.stopped || this.blockedFromRoom || !this.socket) {
+        if (
+          this.stopped ||
+          this.loginFailed ||
+          this.blockedFromRoom ||
+          !this.socket
+        ) {
           return;
         }
 
