@@ -105,28 +105,92 @@ function cleanShortSongName(value) {
 //     .filter((v) => v !== null && v !== undefined)
 //     .join("\n");
 // }
+function cleanShareTo(value) {
+  return String(value || "")
+    .replace(/^@+/, "")
+    .trim();
+}
+
+function extractSongCommandMeta(rawSongName, parsed = {}) {
+  let songName = String(rawSongName || "").trim();
+
+  let shareTo = cleanShareTo(parsed?.meta?.shareTo || "");
+  let customMessage = String(parsed?.meta?.customMessage || "").trim();
+
+  /*
+    احتياطي لو commandParser لم يفصل @user أو #msg
+    .ps song name@username
+    .ps song name#message
+  */
+  if (!shareTo && !customMessage) {
+    const hashIndex = songName.lastIndexOf("#");
+    const atIndex = songName.lastIndexOf("@");
+
+    if (hashIndex > 0 && hashIndex > atIndex) {
+      customMessage = songName.slice(hashIndex + 1).trim();
+      songName = songName.slice(0, hashIndex).trim();
+    } else if (atIndex > 0) {
+      shareTo = cleanShareTo(songName.slice(atIndex + 1));
+      songName = songName.slice(0, atIndex).trim();
+    }
+  }
+
+  return {
+    songName,
+    shareTo,
+    customMessage,
+  };
+}
+
+function normalizeCreateSongResult(created) {
+  if (!created) {
+    return {
+      ok: false,
+      reason: "empty",
+    };
+  }
+
+  /*
+    لو Repository بيرجع:
+    { ok: true, song }
+  */
+  if (typeof created.ok !== "undefined") {
+    return created;
+  }
+
+  /*
+    لو Repository بيرجع song مباشرة
+  */
+  if (created.id) {
+    return {
+      ok: true,
+      song: created,
+    };
+  }
+
+  return {
+    ok: false,
+    reason: "invalid",
+  };
+}
 function formatSongDetails(song) {
   const songName = String(song.songName || "Unknown song").trim();
   const customMessage = String(song.customMessage || "").trim();
-  const shareTo = String(song.shareTo || "").trim();
+  const shareTo = cleanShareTo(song.shareTo || "");
 
   const lines = [songName];
 
   /*
-    لو الأمر كان:
-    .ps song name#message
-    تظهر الرسالة تحت اسم الأغنية مباشرة
+    .ps song name#msg
   */
   if (customMessage) {
-    lines.push(customMessage);
+    lines.push(`#${customMessage.replace(/^#+/, "")}`);
   }
 
   lines.push("", `${song.requestedBy}@${song.roomName}`);
 
   /*
-    لو الأمر كان:
-    .ps song name@username
-    يظهر هذا السطر
+    .ps song name@user
   */
   if (shareTo) {
     lines.push(`with@${shareTo}`);
@@ -142,7 +206,7 @@ function formatSongDetails(song) {
   );
 
   return lines
-    .filter((v) => v !== null && v !== undefined)
+    .filter((v) => v !== null && v !== undefined && String(v).trim() !== "")
     .join("\n");
 }
 function sendRoomTextSafe(socket, text) {
@@ -570,7 +634,14 @@ async function handleSongGlobal(context) {
   const { bot, sender, socket, parsed, runtime } = context;
 
   const senderName = getSenderName(sender);
-  const songName = String(parsed.args.join(" ") || "").trim();
+
+  const rawSongName = String(parsed.args.join(" ") || "").trim();
+
+  const {
+    songName,
+    shareTo,
+    customMessage,
+  } = extractSongCommandMeta(rawSongName, parsed);
 
   if (!songName) {
     sendRoomTextSafe(socket, "Use: .ps song name");
@@ -578,14 +649,19 @@ async function handleSongGlobal(context) {
   }
 
   /*
-    تظهر فورًا بمجرد إرسال الأمر
+    فحص الانتظار قبل تحميل الأغنية
   */
+  if (typeof songLikesRepository.canCreateSong === "function") {
+    const cooldown = songLikesRepository.canCreateSong(senderName);
+
+    if (!cooldown.ok && cooldown.reason === "cooldown") {
+      sendRoomTextSafe(socket, `Please wait ${cooldown.waitSeconds}s.`);
+      return;
+    }
+  }
+
   sendRoomTextSafe(socket, `Loading: ${songName}`);
 
-  /*
-    مهم:
-    getBroadcastTargets تحتاج runtime وليس context فقط
-  */
   const targets = getBroadcastTargets(runtime, context);
 
   console.log("🎵 [MUSIC_BROADCAST_TARGETS]", {
@@ -612,19 +688,76 @@ async function handleSongGlobal(context) {
     return;
   }
 
+  const sourceRoomName = bot.roomName;
+
   /*
-    هنا requestedBy أصبح اسم الشخص الذي شغل الأمر
-    بدل اسم البوت
+    مهم:
+    createSong مرة واحدة فقط، وليس داخل for
+    عشان نفس ID يشتغل في كل الغرف
   */
-  const message = formatSongDetails({
-    id: Date.now().toString(),
+  const createdRaw = songLikesRepository.createSong({
     songName: prepared.title,
+    roomName: sourceRoomName,
     requestedBy: senderName,
-    roomName: bot.roomName,
     url: prepared.url,
+    customMessage,
+    shareTo,
   });
 
+  const created = normalizeCreateSongResult(createdRaw);
+
+  if (!created.ok && created.reason === "cooldown") {
+    sendRoomTextSafe(socket, `Please wait ${created.waitSeconds}s.`);
+    return;
+  }
+
+  if (!created.ok || !created.song) {
+    sendRoomTextSafe(socket, "Song failed.");
+    return;
+  }
+
+  const song = {
+    ...created.song,
+    customMessage,
+    shareTo,
+    url: prepared.url,
+  };
+
+  const message = formatSongDetails(song);
+
+  /*
+    لو الأمر:
+    .ps song@user
+    يرسل خاص للمستخدم
+  */
+  if (shareTo) {
+    sendPrivateSafe(
+      socket,
+      shareTo,
+      [
+        `@${shareTo}`,
+        "",
+        `${senderName} shared a song with you`,
+        "",
+        song.songName,
+        "",
+        `From: ${senderName}`,
+        `Room: ${sourceRoomName}`,
+        "",
+        song.url || "",
+        "",
+        `like@${song.id}`,
+        "",
+        `com@${song.id}@msg`,
+      ]
+        .filter((v) => v !== null && v !== undefined && String(v).trim() !== "")
+        .join("\n")
+    );
+  }
+
   const delayMs = Number(process.env.MUSIC_BROADCAST_DELAY_MS || 1000);
+
+  let sentCount = 0;
 
   for (let i = 0; i < targets.length; i++) {
     const target = targets[i];
@@ -637,14 +770,8 @@ async function handleSongGlobal(context) {
         roomName: target.roomName,
       });
 
-      /*
-        إرسال تفاصيل الأغنية كنص
-      */
-      sendRoomTextSafe(target.socket, message);
+      const sentText = sendRoomTextSafe(target.socket, message);
 
-      /*
-        إرسال الصوت كـ audio
-      */
       const audioSent = sendRoomAudioSafe(target.socket, prepared.url);
 
       if (!audioSent) {
@@ -653,6 +780,10 @@ async function handleSongGlobal(context) {
           roomName: target.roomName,
           url: prepared.url,
         });
+      }
+
+      if (sentText) {
+        sentCount += 1;
       }
 
       if (i < targets.length - 1) {
@@ -667,10 +798,16 @@ async function handleSongGlobal(context) {
     }
   }
 
-  /*
-    لو لا تريد رسالة Sent to ... اتركها معلقة
-  */
-  // sendRoomTextSafe(socket, `Sent to ${targets.length} rooms.`);
+  console.log("🎵 [SONG_GLOBAL_DONE]", {
+    songName,
+    songId: song.id,
+    shareTo,
+    customMessage,
+    sentCount,
+  });
+
+  // لو تريد رسالة بعد الإرسال:
+  // sendRoomTextSafe(socket, `Sent: ${sentCount}`);
 }
 function handleLikeSong(context) {
   const { sender, socket, parsed } = context;

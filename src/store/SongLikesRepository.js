@@ -321,7 +321,7 @@ function generateUniqueSongId(existingSongs) {
   let id = generateShortSongId();
   let attempts = 0;
 
-  while (existingSongs[id] && attempts < 30) {
+  while (existingSongs[id] && attempts < 20) {
     id = generateShortSongId();
     attempts++;
   }
@@ -332,9 +332,8 @@ function generateUniqueSongId(existingSongs) {
       .slice(2, 5)}`;
   }
 
-  return String(id).replace(/[^a-z0-9]/gi, "").slice(0, 6);
+  return String(id).slice(0, 6);
 }
-
 function ensureDataShape(data) {
   if (!data || typeof data !== "object") {
     data = {};
