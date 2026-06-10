@@ -567,17 +567,25 @@ function sleep(ms) {
 }
 
 async function handleSongGlobal(context) {
-  const { bot, socket, parsed, runtime } = context;
+  const { bot, sender, socket, parsed, runtime } = context;
 
+  const senderName = getSenderName(sender);
   const songName = String(parsed.args.join(" ") || "").trim();
 
   if (!songName) {
     sendRoomTextSafe(socket, "Use: .ps song name");
     return;
   }
-    sendRoomTextSafe(socket, `Loading: ${songName}`);
 
+  /*
+    تظهر فورًا بمجرد إرسال الأمر
+  */
+  sendRoomTextSafe(socket, `Loading: ${songName}`);
 
+  /*
+    مهم:
+    getBroadcastTargets تحتاج runtime وليس context فقط
+  */
   const targets = getBroadcastTargets(runtime, context);
 
   console.log("🎵 [MUSIC_BROADCAST_TARGETS]", {
@@ -595,7 +603,7 @@ async function handleSongGlobal(context) {
 
   const prepared = await prepareSong({
     songName,
-    sender: bot.username,
+    sender: senderName,
     roomName: bot.roomName,
   });
 
@@ -604,17 +612,19 @@ async function handleSongGlobal(context) {
     return;
   }
 
+  /*
+    هنا requestedBy أصبح اسم الشخص الذي شغل الأمر
+    بدل اسم البوت
+  */
   const message = formatSongDetails({
     id: Date.now().toString(),
     songName: prepared.title,
-    requestedBy: bot.username,
+    requestedBy: senderName,
     roomName: bot.roomName,
     url: prepared.url,
   });
 
   const delayMs = Number(process.env.MUSIC_BROADCAST_DELAY_MS || 1000);
-
-  // sendRoomTextSafe(socket, `Sending to ${targets.length} rooms...`);
 
   for (let i = 0; i < targets.length; i++) {
     const target = targets[i];
@@ -627,8 +637,14 @@ async function handleSongGlobal(context) {
         roomName: target.roomName,
       });
 
+      /*
+        إرسال تفاصيل الأغنية كنص
+      */
       sendRoomTextSafe(target.socket, message);
 
+      /*
+        إرسال الصوت كـ audio
+      */
       const audioSent = sendRoomAudioSafe(target.socket, prepared.url);
 
       if (!audioSent) {
@@ -651,7 +667,10 @@ async function handleSongGlobal(context) {
     }
   }
 
-  sendRoomTextSafe(socket, `Sent to ${targets.length} rooms.`);
+  /*
+    لو لا تريد رسالة Sent to ... اتركها معلقة
+  */
+  // sendRoomTextSafe(socket, `Sent to ${targets.length} rooms.`);
 }
 function handleLikeSong(context) {
   const { sender, socket, parsed } = context;
