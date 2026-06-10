@@ -79,32 +79,7 @@ function cleanShortSongName(value) {
 
   return cleaned || "song";
 }
-// function formatSongDetails(song) {
-//   const songName = String(song.songName || "Unknown song").trim();
 
-//   const lines = [
-//     songName,
-//     "",
-//     `${song.requestedBy}@${song.roomName}`,
-//   ];
-
-//   if (song.customMessage) {
-//     lines.push(String(song.customMessage).trim());
-//   }
-
-//   lines.push(
-//     "",
-//     song.url || "",
-//     "",
-//     `like@${song.id}`,
-//     "",
-//     `com@${song.id}@msg`
-//   );
-
-//   return lines
-//     .filter((v) => v !== null && v !== undefined)
-//     .join("\n");
-// }
 function cleanShareTo(value) {
   return String(value || "")
     .replace(/^@+/, "")
@@ -187,7 +162,7 @@ function formatSongDetails(song) {
     lines.push(`#${customMessage.replace(/^#+/, "")}`);
   }
 
-  lines.push("", `${song.requestedBy}@${song.roomName}`);
+  lines.push(`${song.requestedBy}@${song.roomName}`);
 
   /*
     .ps song name@user
@@ -197,17 +172,14 @@ function formatSongDetails(song) {
   }
 
   lines.push(
-    "",
     song.url || "",
-    "",
     `like@${song.id}`,
-    "",
     `com@${song.id}@msg`
   );
 
   return lines
     .filter((v) => v !== null && v !== undefined && String(v).trim() !== "")
-    .join("\n");
+    .join("\n\n");
 }
 function sendRoomTextSafe(socket, text) {
   if (!socket || !text) return false;
@@ -730,30 +702,24 @@ async function handleSongGlobal(context) {
     .ps song@user
     يرسل خاص للمستخدم
   */
-  if (shareTo) {
-    sendPrivateSafe(
-      socket,
-      shareTo,
-      [
-        `@${shareTo}`,
-        "",
-        `${senderName} shared a song with you`,
-        "",
-        song.songName,
-        "",
-        `From: ${senderName}`,
-        `Room: ${sourceRoomName}`,
-        "",
-        song.url || "",
-        "",
-        `like@${song.id}`,
-        "",
-        `com@${song.id}@msg`,
-      ]
-        .filter((v) => v !== null && v !== undefined && String(v).trim() !== "")
-        .join("\n")
-    );
-  }
+if (shareTo) {
+  sendPrivateSafe(
+    socket,
+    shareTo,
+    [
+      `@${shareTo}`,
+      `${senderName} shared a song with you`,
+      song.songName,
+      `From: ${senderName}`,
+      `Room: ${sourceRoomName}`,
+      song.url || "",
+      `like@${song.id}`,
+      `com@${song.id}@msg`,
+    ]
+      .filter((v) => v !== null && v !== undefined && String(v).trim() !== "")
+      .join("\n\n")
+  );
+}
 
   const delayMs = Number(process.env.MUSIC_BROADCAST_DELAY_MS || 1000);
 
