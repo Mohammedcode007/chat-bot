@@ -2,21 +2,27 @@ const { SocketClient } = require("../../core/SocketClient");
 const { ReconnectManager } = require("../../core/ReconnectManager");
 
 const { makeControllerBotProfile } = require("./ControllerBotProfile");
+
 const {
   handleAutoPunishOnJoin,
 } = require("../../features/autoPunish/autoPunish.guard");
+
 const {
   handleLogsPrivateCommand,
 } = require("../../features/logs/logs.commands");
+
 const {
   extractIncomingMessage,
   extractRoomUserEvent,
   extractRoomUsersSnapshot,
 } = require("./ControllerBotEvents");
+
 const {
   notifyWatchersOnJoin,
 } = require("../../features/watch/watch.commands");
+
 const { handleCommand } = require("../../commands/commandRouter");
+
 const {
   handleAutoBanRoleNoneOnJoin,
   handleWelcomeOnJoin,
@@ -24,6 +30,7 @@ const {
   checkAntiSpam,
   containsBadWord,
 } = require("../../features/roomSettings/roomSettings.guard");
+
 const { RoomUsersRepository } = require("../../store/RoomUsersRepository");
 
 class ControllerBot {
@@ -35,6 +42,7 @@ class ControllerBot {
     this.socket = null;
     this.stopped = false;
     this.joined = false;
+    this.blockedFromRoom = false;
 
     this.reconnectManager = new ReconnectManager();
     this.roomUsersRepository = new RoomUsersRepository();
@@ -43,6 +51,7 @@ class ControllerBot {
   start() {
     this.stopped = false;
     this.joined = false;
+    this.blockedFromRoom = false;
 
     this.socket = new SocketClient({
       username: this.bot.username,
@@ -70,6 +79,18 @@ class ControllerBot {
 
       this.joined = false;
 
+      /*
+        لو الحساب اترفض من الغرفة، لا تعمل reconnect داخل نفس التشغيل.
+        بعد pm2 restart سيجرب مرة واحدة حسب BotRuntime.
+      */
+      if (this.blockedFromRoom) {
+        console.log("🚫 [CONTROLLER_NO_RECONNECT_BLOCKED_ROOM]", {
+          username: this.bot.username,
+          roomName: this.bot.roomName,
+        });
+        return;
+      }
+
       if (!this.stopped) {
         this.reconnectManager.scheduleReconnect(() => this.start());
       }
@@ -83,21 +104,95 @@ class ControllerBot {
   }
 
   handleMessage(data) {
-  const handledPrivateLogs = handleLogsPrivateCommand({
-    bot: this.bot,
-    socket: this.socket,
-    data,
-  });
+    /*
+      أول شيء:
+      لو السيرفر رفض دخول الغرفة، احفظ الحساب + الغرفة
+      ولا تكمل أوامر أو rejoin.
+    */
+    if (this.handleRoomReject(data)) {
+      return;
+    }
 
-  if (handledPrivateLogs) {
-    return;
+    /*
+      لو دخل بنجاح بعد restart والحظر كان اتفك،
+      احذف الحساب + الغرفة من blockedBotRooms.json.
+    */
+    this.handleRoomJoinSuccess(data);
+
+    const handledPrivateLogs = handleLogsPrivateCommand({
+      bot: this.bot,
+      socket: this.socket,
+      data,
+    });
+
+    if (handledPrivateLogs) {
+      return;
+    }
+
+    this.handleLoginSuccess(data);
+    this.handleRoomUsersSnapshot(data);
+    this.handleRoomUserJoinOrLeave(data);
+    this.handleRoomCommand(data);
   }
 
-  this.handleLoginSuccess(data);
-  this.handleRoomUsersSnapshot(data);
-  this.handleRoomUserJoinOrLeave(data);
-  this.handleRoomCommand(data);
+  handleRoomReject(data) {
+    if (
+      !this.runtime ||
+      typeof this.runtime.isRoomRejectEvent !== "function" ||
+      typeof this.runtime.markBotRoomBlocked !== "function"
+    ) {
+      return false;
+    }
+
+    if (!this.runtime.isRoomRejectEvent(data)) {
+      return false;
+    }
+
+    const roomName = data.name || this.bot.roomName;
+    const reason = data.type || "room_rejected";
+
+    this.blockedFromRoom = true;
+    this.stopped = true;
+
+    console.log("🚫 [CONTROLLER_ROOM_REJECTED]", {
+      username: this.bot.username,
+      roomName,
+      reason,
+      data,
+    });
+
+    this.runtime.markBotRoomBlocked({
+      type: "controller",
+      username: this.bot.username,
+      roomName,
+      reason,
+    });
+
+    if (this.socket) {
+      this.socket.close();
+    }
+
+    return true;
   }
+
+  handleRoomJoinSuccess(data) {
+    if (
+      data &&
+      data.handler === "room_event" &&
+      data.type === "you_joined" &&
+      this.runtime &&
+      typeof this.runtime.removeBotRoomBlocked === "function"
+    ) {
+      const roomName = data.name || this.bot.roomName;
+
+      this.runtime.removeBotRoomBlocked({
+        type: "controller",
+        username: this.bot.username,
+        roomName,
+      });
+    }
+  }
+
   isSameBotUsername(username) {
     const a = String(username || "").trim().toLowerCase();
     const b = String(this.bot.username || "").trim().toLowerCase();
@@ -106,7 +201,35 @@ class ControllerBot {
   }
 
   rejoinRoom(reason = "unknown") {
-    if (this.stopped || !this.socket) {
+    if (this.stopped || this.blockedFromRoom || !this.socket) {
+      return;
+    }
+
+    /*
+      داخل نفس التشغيل:
+      لو الحساب اتحفظ محظور من الغرفة، لا يعيد الدخول.
+    */
+    if (
+      this.runtime &&
+      typeof this.runtime.isBotRoomBlocked === "function" &&
+      this.runtime.isBotRoomBlocked({
+        type: "controller",
+        username: this.bot.username,
+        roomName: this.bot.roomName,
+      })
+    ) {
+      console.log("🚫 [CONTROLLER_REJOIN_SKIPPED_BLOCKED_ROOM]", {
+        username: this.bot.username,
+        roomName: this.bot.roomName,
+      });
+
+      this.blockedFromRoom = true;
+      this.stopped = true;
+
+      if (this.socket) {
+        this.socket.close();
+      }
+
       return;
     }
 
@@ -117,14 +240,14 @@ class ControllerBot {
     });
 
     setTimeout(() => {
-      if (this.stopped || !this.socket) {
+      if (this.stopped || this.blockedFromRoom || !this.socket) {
         return;
       }
 
       this.socket.joinRoom(this.bot.roomName);
 
       setTimeout(() => {
-        if (this.stopped || !this.socket) {
+        if (this.stopped || this.blockedFromRoom || !this.socket) {
           return;
         }
 
@@ -132,6 +255,7 @@ class ControllerBot {
       }, 1000);
     }, 1500);
   }
+
   handleLoginSuccess(data) {
     if (
       data.handler === "login_event" &&
@@ -141,11 +265,29 @@ class ControllerBot {
       console.log(`🔑 Login success for controller: ${this.bot.username}`);
 
       setTimeout(() => {
+        if (this.stopped || this.blockedFromRoom || !this.socket) {
+          return;
+        }
+
+        /*
+          مهم:
+          لا نمنع الدخول هنا لو الغرفة موجودة في blockedBotRooms.json.
+          لأن BotRuntime هو الذي يقرر:
+          - يجرب بعد restart لو BLOCKED_ROOM_RETRY_ON_STARTUP=1
+          - أو يمنع من البداية لو BLOCKED_ROOM_RETRY_ON_STARTUP=0
+
+          لو الحظر مازال موجود، السيرفر سيرسل room_unauthorized
+          وسنحفظه مرة أخرى ونوقف المحاولة.
+        */
         console.log(`🚪 Trying to join room: ${this.bot.roomName}`);
 
         this.socket.joinRoom(this.bot.roomName);
 
         setTimeout(() => {
+          if (this.stopped || this.blockedFromRoom || !this.socket) {
+            return;
+          }
+
           this.socket.updateProfile(makeControllerBotProfile(this.bot));
         }, 1000);
       }, 1000);
@@ -153,307 +295,190 @@ class ControllerBot {
       this.joined = true;
     }
   }
-handleRoomUsersSnapshot(data) {
-  const snapshot = extractRoomUsersSnapshot(data);
 
-  if (!snapshot) {
-    return;
-  }
+  handleRoomUsersSnapshot(data) {
+    const snapshot = extractRoomUsersSnapshot(data);
 
-  const roomName = snapshot.roomName || this.bot.roomName;
+    if (!snapshot) {
+      return;
+    }
 
-  this.roomUsersRepository.replaceRoomUsers(roomName, snapshot.users);
+    const roomName = snapshot.roomName || this.bot.roomName;
 
-  const savedUsers = this.roomUsersRepository.getRoomUsers(roomName);
+    this.roomUsersRepository.replaceRoomUsers(roomName, snapshot.users);
 
-  /*
-    مهم:
-    عند دخول البوت للغرفة يأتي snapshot فيه users كاملة.
-    لذلك نفحص المستخدمين الموجودين بالفعل.
-    لو autoBanRoleNoneEnabled مفعّل، وأحدهم role none، يتم حظره.
-  */
-  savedUsers.forEach((user) => {
-    handleAutoBanRoleNoneOnJoin({
-      socket: this.socket,
-      roomName,
-      username: user.username,
-      role: user.role,
-    });
-  });
-
-  console.log("👥 [ROOM_USERS_SNAPSHOT_SAVED]", {
-    room: roomName,
-    receivedCount: snapshot.users.length,
-    savedCount: savedUsers.length,
-    users: savedUsers.map((u) => ({
-      username: u.username,
-      role: u.role,
-    })),
-  });
-}
-handleRoomUserJoinOrLeave(data) {
-  const event = extractRoomUserEvent(data);
-
-  if (!event) {
-    return;
-  }
-
-  const roomName = event.roomName || this.bot.roomName;
-
-if (event.action === "join") {
-  this.roomUsersRepository.addUser(roomName, {
-    username: event.username,
-    role: event.role || "",
-    userId: event.userId || "",
-    photoUrl: event.photoUrl || "",
-  });
-
-  /*
-    Auto punish:
-    ab@username = auto ban
-    ak@username = auto kick
-
-    مهم:
-    يكون قبل الترحيب حتى لا يرحب بشخص سيتم طرده/حظره.
-  */
-  const punished = handleAutoPunishOnJoin({
-    socket: this.socket,
-    roomName,
-    username: event.username,
-  });
-
-  if (punished) {
-    console.log("⚡ [AUTO_PUNISH_APPLIED_ON_JOIN]", {
-      room: roomName,
-      username: event.username,
-    });
-
-    return;
-  }
-
-  /*
-    تنبيه watch@username
-  */
-  notifyWatchersOnJoin({
-    socket: this.socket,
-    username: event.username,
-    roomName,
-  });
-
-  /*
-    رسالة الترحيب حسب إعدادات الغرفة:
-    set@welcome@on
-    welcome@Welcome {user} to {room}
-  */
-  handleWelcomeOnJoin({
-    socket: this.socket,
-    roomName,
-    username: event.username,
-  });
-
-  /*
-    حظر تلقائي إذا دخل المستخدم برتبة none:
-    set@autoban_none@on
-  */
-  handleAutoBanRoleNoneOnJoin({
-    socket: this.socket,
-    roomName,
-    username: event.username,
-    role: event.role,
-  });
-
-    console.log("➕ [ROOM_USER_JOIN]", {
-      room: roomName,
-      username: event.username,
-      role: event.role || "",
-    });
-
-    return;
-  }
-
-  if (event.action === "leave") {
-    this.roomUsersRepository.removeUser(roomName, event.username);
-
-    console.log("➖ [ROOM_USER_LEAVE]", {
-      room: roomName,
-      username: event.username,
-    });
+    const savedUsers = this.roomUsersRepository.getRoomUsers(roomName);
 
     /*
-      لو الخارج من الغرفة هو بوت التحكم نفسه
-      يدخل مرة أخرى تلقائيًا
+      عند دخول البوت للغرفة يأتي snapshot فيه users كاملة.
+      لذلك نفحص المستخدمين الموجودين بالفعل.
+      لو autoBanRoleNoneEnabled مفعّل، وأحدهم role none، يتم حظره.
     */
-    if (this.isSameBotUsername(event.username)) {
-      this.rejoinRoom("controller_left_or_kicked");
-    }
-  }
-}
-  // handleRoomUsersSnapshot(data) {
-  //   const snapshot = extractRoomUsersSnapshot(data);
+    savedUsers.forEach((user) => {
+      handleAutoBanRoleNoneOnJoin({
+        socket: this.socket,
+        roomName,
+        username: user.username,
+        role: user.role,
+      });
+    });
 
-  //   if (!snapshot) {
-  //     return;
-  //   }
-
-  //   const roomName = snapshot.roomName || this.bot.roomName;
-
-  //   this.roomUsersRepository.replaceRoomUsers(roomName, snapshot.users);
-
-  //   const savedUsers = this.roomUsersRepository.getRoomUsers(roomName);
-
-  //   console.log("👥 [ROOM_USERS_SNAPSHOT_SAVED]", {
-  //     room: roomName,
-  //     receivedCount: snapshot.users.length,
-  //     savedCount: savedUsers.length,
-  //     users: savedUsers.map((u) => u.username),
-  //   });
-  // }
-
-// handleRoomUserJoinOrLeave(data) {
-//   const event = extractRoomUserEvent(data);
-
-//   if (!event) {
-//     return;
-//   }
-
-//   const roomName = event.roomName || this.bot.roomName;
-
-//   if (event.action === "join") {
-//     notifyWatchersOnJoin({
-//   socket: this.socket,
-//   username: event.username,
-//   roomName,
-// });
-//     this.roomUsersRepository.addUser(roomName, {
-//       username: event.username,
-//       role: event.role || "",
-//       userId: event.userId || "",
-//       photoUrl: event.photoUrl || "",
-//     });
-
-//     console.log("➕ [ROOM_USER_JOIN]", {
-//       room: roomName,
-//       username: event.username,
-//     });
-
-//     return;
-//   }
-
-//   if (event.action === "leave") {
-//     this.roomUsersRepository.removeUser(roomName, event.username);
-
-//     console.log("➖ [ROOM_USER_LEAVE]", {
-//       room: roomName,
-//       username: event.username,
-//     });
-
-//     /*
-//       لو الخارج من الغرفة هو بوت التحكم نفسه
-//       يدخل مرة أخرى تلقائيًا
-//     */
-//     if (this.isSameBotUsername(event.username)) {
-//       this.rejoinRoom("controller_left_or_kicked");
-//     }
-//   }
-// }
-handleRoomCommand(data) {
-  const incoming = extractIncomingMessage(data);
-
-  if (!incoming.text || !incoming.sender) {
-    return;
+    console.log("👥 [ROOM_USERS_SNAPSHOT_SAVED]", {
+      room: roomName,
+      receivedCount: snapshot.users.length,
+      savedCount: savedUsers.length,
+      users: savedUsers.map((u) => ({
+        username: u.username,
+        role: u.role,
+      })),
+    });
   }
 
-  const roomName = incoming.roomName || this.bot.roomName;
+  handleRoomUserJoinOrLeave(data) {
+    const event = extractRoomUserEvent(data);
 
-  /*
-    لا تطبق الحماية على رسائل البوت نفسه
-  */
-  if (this.isSameBotUsername(incoming.sender)) {
-    return;
-  }
-
-  /*
-    =====================================================
-    Links Guard
-    set@links@off
-    =====================================================
-  */
-  if (shouldBlockLink(roomName, incoming.text)) {
-    this.socket.sendRoomMessage(`Links are disabled: ${incoming.sender}`);
-    return;
-  }
-
-  /*
-    =====================================================
-    Bad Words Guard
-    set@badwords@on
-
-    mode:
-    warn = رسالة تحذير فقط
-    kick = طرد
-    ban  = حظر
-    =====================================================
-  */
-  const badWord = containsBadWord(roomName, incoming.text);
-
-  if (badWord.matched) {
-    this.socket.sendRoomMessage(
-      `Bad word detected: ${incoming.sender}`
-    );
-
-    if (
-      badWord.mode === "kick" &&
-      typeof this.socket.sendRoomKick === "function"
-    ) {
-      this.socket.sendRoomKick(incoming.sender, roomName);
+    if (!event) {
+      return;
     }
 
-    if (
-      badWord.mode === "ban" &&
-      typeof this.socket.sendRoomBan === "function"
-    ) {
-      this.socket.sendRoomBan(incoming.sender, roomName);
+    const roomName = event.roomName || this.bot.roomName;
+
+    if (event.action === "join") {
+      this.roomUsersRepository.addUser(roomName, {
+        username: event.username,
+        role: event.role || "",
+        userId: event.userId || "",
+        photoUrl: event.photoUrl || "",
+      });
+
+      const punished = handleAutoPunishOnJoin({
+        socket: this.socket,
+        roomName,
+        username: event.username,
+      });
+
+      if (punished) {
+        console.log("⚡ [AUTO_PUNISH_APPLIED_ON_JOIN]", {
+          room: roomName,
+          username: event.username,
+        });
+
+        return;
+      }
+
+      notifyWatchersOnJoin({
+        socket: this.socket,
+        username: event.username,
+        roomName,
+      });
+
+      handleWelcomeOnJoin({
+        socket: this.socket,
+        roomName,
+        username: event.username,
+      });
+
+      handleAutoBanRoleNoneOnJoin({
+        socket: this.socket,
+        roomName,
+        username: event.username,
+        role: event.role,
+      });
+
+      console.log("➕ [ROOM_USER_JOIN]", {
+        room: roomName,
+        username: event.username,
+        role: event.role || "",
+      });
+
+      return;
     }
 
-    return;
+    if (event.action === "leave") {
+      this.roomUsersRepository.removeUser(roomName, event.username);
+
+      console.log("➖ [ROOM_USER_LEAVE]", {
+        room: roomName,
+        username: event.username,
+      });
+
+      /*
+        لو الخارج من الغرفة هو بوت التحكم نفسه يدخل مرة أخرى تلقائيًا.
+        لكن لو اتحفظ محظور، لن يدخل.
+      */
+      if (this.isSameBotUsername(event.username)) {
+        this.rejoinRoom("controller_left_or_kicked");
+      }
+    }
   }
 
-  /*
-    =====================================================
-    Anti Spam Guard
-    set@antispam@on
-    =====================================================
-  */
-  const spam = checkAntiSpam({
-    roomName,
-    username: incoming.sender,
-    text: incoming.text,
-  });
+  handleRoomCommand(data) {
+    const incoming = extractIncomingMessage(data);
 
-  if (spam.blocked) {
-    this.socket.sendRoomMessage(
-      `Anti spam: ${incoming.sender} (${spam.reason})`
-    );
-
-    if (typeof this.socket.sendRoomKick === "function") {
-      this.socket.sendRoomKick(incoming.sender, roomName);
+    if (!incoming.text || !incoming.sender) {
+      return;
     }
 
-    return;
-  }
+    const roomName = incoming.roomName || this.bot.roomName;
 
-  /*
-    بعد اجتياز الحماية يتم تنفيذ الأوامر طبيعي
-  */
-  handleCommand({
-    bot: this.bot,
-    sender: incoming.sender,
-    text: incoming.text,
-    socket: this.socket,
-    repository: this.repository,
-    runtime: this.runtime,
-  });
-}
+    if (this.isSameBotUsername(incoming.sender)) {
+      return;
+    }
+
+    if (shouldBlockLink(roomName, incoming.text)) {
+      this.socket.sendRoomMessage(`Links are disabled: ${incoming.sender}`);
+      return;
+    }
+
+    const badWord = containsBadWord(roomName, incoming.text);
+
+    if (badWord.matched) {
+      this.socket.sendRoomMessage(`Bad word detected: ${incoming.sender}`);
+
+      if (
+        badWord.mode === "kick" &&
+        typeof this.socket.sendRoomKick === "function"
+      ) {
+        this.socket.sendRoomKick(incoming.sender, roomName);
+      }
+
+      if (
+        badWord.mode === "ban" &&
+        typeof this.socket.sendRoomBan === "function"
+      ) {
+        this.socket.sendRoomBan(incoming.sender, roomName);
+      }
+
+      return;
+    }
+
+    const spam = checkAntiSpam({
+      roomName,
+      username: incoming.sender,
+      text: incoming.text,
+    });
+
+    if (spam.blocked) {
+      this.socket.sendRoomMessage(
+        `Anti spam: ${incoming.sender} (${spam.reason})`
+      );
+
+      if (typeof this.socket.sendRoomKick === "function") {
+        this.socket.sendRoomKick(incoming.sender, roomName);
+      }
+
+      return;
+    }
+
+    handleCommand({
+      bot: this.bot,
+      sender: incoming.sender,
+      text: incoming.text,
+      socket: this.socket,
+      repository: this.repository,
+      runtime: this.runtime,
+    });
+  }
 
   stop() {
     this.stopped = true;
