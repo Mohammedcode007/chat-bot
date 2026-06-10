@@ -575,6 +575,8 @@ async function handleSongGlobal(context) {
     sendRoomTextSafe(socket, "Use: .ps song name");
     return;
   }
+    sendRoomTextSafe(socket, `Loading: ${songName}`);
+
 
   const targets = getBroadcastTargets(runtime, context);
 
@@ -612,7 +614,7 @@ async function handleSongGlobal(context) {
 
   const delayMs = Number(process.env.MUSIC_BROADCAST_DELAY_MS || 1000);
 
-  sendRoomTextSafe(socket, `Sending to ${targets.length} rooms...`);
+  // sendRoomTextSafe(socket, `Sending to ${targets.length} rooms...`);
 
   for (let i = 0; i < targets.length; i++) {
     const target = targets[i];
