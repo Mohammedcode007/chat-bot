@@ -118,24 +118,35 @@ class BotRuntime {
       );
     });
 
-    /*
-      أخطر جزء هو music_dj لأنه يدخل غرف كثيرة.
-      لذلك يدخل بعد controller/silent وبنفس التأخير.
-    */
-    musicRooms.forEach((room) => {
-      const roomName = room.roomName || room;
+  /*
+  Music bot لا يدخل كل الغرف عند تشغيل السيرفر.
+  هذا أهم تعديل لمنع البلوك.
+  
+  MAX_MUSIC_STARTUP_ROOMS=0
+  يعني لا يدخل أي غرفة موسيقى تلقائيًا عند التشغيل.
+*/
+const maxMusicStartupRooms = Number(process.env.MAX_MUSIC_STARTUP_ROOMS || 0);
 
-      if (roomName) {
-        this.addToStartQueue(`music:${roomName}`, () => {
-          this.connectMusicBot(roomName);
-        });
-      }
+const startupMusicRooms =
+  maxMusicStartupRooms > 0
+    ? musicRooms.slice(0, maxMusicStartupRooms)
+    : [];
+
+startupMusicRooms.forEach((room) => {
+  const roomName = room.roomName || room;
+
+  if (roomName) {
+    this.addToStartQueue(`music:${roomName}`, () => {
+      this.connectMusicBot(roomName);
     });
+  }
+});
 
     console.log(`📩 Admin bot: queued`);
     console.log(`⚙️ Controller bots: ${controllerBots.length}`);
     console.log(`🤫 Silent bots: ${silentBots.length}`);
-    console.log(`🎵 Music rooms: ${musicRooms.length}`);
+console.log(`🎵 Music rooms saved: ${musicRooms.length}`);
+console.log(`🎵 Music rooms queued on startup: ${startupMusicRooms.length}`);
     console.log(`⏱️ Bot start delay: ${this.botStartDelayMs}ms`);
   }
 

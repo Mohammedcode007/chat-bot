@@ -1,0 +1,23 @@
+{
+  "كوكاكولآ": {
+    "enabled": true,
+    "musicEnabled": true,
+    "lookupEnabled": true,
+    "profileEnabled": true,
+    "watchEnabled": true,
+    "inviteEnabled": true,
+    "logsEnabled": true,
+    "welcomeEnabled": true,
+    "welcomeText": "ᗯEᒪᑕOᗰE 🖤 $",
+    "vipProtectionEnabled": true,
+    "autoBanRoleNoneEnabled": false,
+    "antiSpamEnabled": false,
+    "maxMessagesPer10Seconds": 5,
+    "repeatedMessageLimit": 3,
+    "badWordsEnabled": false,
+    "badWordsMode": "warn",
+    "badWords": [],
+    "linksEnabled": true,
+    "updatedAt": "2026-06-04T19:57:23.447Z"
+  }
+}

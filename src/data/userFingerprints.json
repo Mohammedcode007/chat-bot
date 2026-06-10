@@ -1,0 +1,43 @@
+{
+  "3yon_7zina": {
+    "username": "3yon_7zina",
+    "knownNames": [
+      "3yon_7zina"
+    ],
+    "rooms": {
+      "كوكاكولآ": {
+        "roomName": "كوكاكولآ",
+        "firstSeenAt": 1780565810358,
+        "lastSeenAt": 1780565810358,
+        "messageCount": 1,
+        "joinCount": 0,
+        "leaveCount": 0
+      }
+    },
+    "badges": [
+      "109|https://cdn.chatp.net/badges/ic_badge109.png|22|0|0|0|0"
+    ],
+    "colors": [
+      "off|#B03060|"
+    ],
+    "roles": {
+      "owner": 1
+    },
+    "messageSignatures": [
+      "len:20;ar:1;en:0;em:4;dg:0;pn:0;w:فررروحه|قلبي"
+    ],
+    "recentEvents": [
+      {
+        "type": "message",
+        "roomName": "كوكاكولآ",
+        "at": 1780565810358
+      }
+    ],
+    "firstSeenAt": 1780565810358,
+    "lastSeenAt": 1780565810358,
+    "messageCount": 1,
+    "joinCount": 0,
+    "leaveCount": 0,
+    "updatedAt": 1780565810358
+  }
+}

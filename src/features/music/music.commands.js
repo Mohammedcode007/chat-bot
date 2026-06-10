@@ -402,31 +402,88 @@ function getBroadcastTargets(runtime, currentContext = {}) {
 }
 
 async function prepareSong({ songName, sender, roomName }) {
-  const result = await buildMusicReply(`تشغيل ${songName}`, {
-    requestedBy: sender,
-    roomName,
-  });
+  try {
+    console.log("🎵 [PREPARE_SONG_START]", {
+      songName,
+      sender,
+      roomName,
+    });
 
-  if (!result || !result.handled || result.success === false) {
+    const result = await buildMusicReply(`تشغيل ${songName}`, {
+      requestedBy: sender,
+      roomName,
+    });
+
+    console.log("🎵 [PREPARE_SONG_RESULT]", {
+      handled: result?.handled,
+      success: result?.success,
+      title: result?.title,
+      publicUrl: result?.publicUrl,
+      audioUrl: result?.audioUrl,
+      url: result?.url,
+      error: result?.error,
+      message: result?.message,
+      meta: result?.meta,
+    });
+
+    if (!result) {
+      return {
+        ok: false,
+        error: "Song failed: empty result.",
+      };
+    }
+
+    if (!result.handled) {
+      return {
+        ok: false,
+        error: "Song failed: not handled.",
+      };
+    }
+
+    if (result.success === false) {
+      return {
+        ok: false,
+        error: result.error || result.message || "Song failed: download failed.",
+      };
+    }
+
+    const songTitle =
+      (result.meta && result.meta.youtubeTitle) ||
+      (result.meta && result.meta.title) ||
+      result.title ||
+      songName;
+
+    const songUrl = getSongUrlFromResult(result);
+
+    if (!songUrl) {
+      console.log("❌ [PREPARE_SONG_NO_AUDIO_URL]", {
+        songName,
+        result,
+      });
+
+      return {
+        ok: false,
+        error: "Song failed: no audio url.",
+      };
+    }
+
+    return {
+      ok: true,
+      title: songTitle,
+      url: songUrl,
+    };
+  } catch (err) {
+    console.log("❌ [PREPARE_SONG_ERROR]", {
+      songName,
+      message: err.message,
+      stack: err.stack,
+    });
+
     return {
       ok: false,
-      error: "Song failed.",
+      error: "Song failed: server error.",
     };
   }
-
-  const songTitle =
-    (result.meta && result.meta.youtubeTitle) ||
-    (result.meta && result.meta.title) ||
-    result.title ||
-    songName;
-
-  const songUrl = getSongUrlFromResult(result);
-
-  return {
-    ok: true,
-    title: songTitle,
-    url: songUrl,
-  };
 }
 
 /*

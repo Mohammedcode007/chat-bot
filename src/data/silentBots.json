@@ -1,1 +1,32 @@
-[]
+[
+  {
+    "type": "silent",
+    "username": "مـ∫۶ـلى،∫لـدنيـ∫،۶ـتـب",
+    "password": "mina-__-3628",
+    "roomName": "𝑴𝒆𝒓𝒄𝒊𝒍𝒆𝒔𝒔⛧",
+    "owner": "ا◙☬ځُــۥـ☼ـڈ◄أڵـــســمـــٱ۽►ـۉد☼ــۥــۓ☬◙ا",
+    "profile": {
+      "title": "Silent Bot",
+      "status": "connected silently"
+    },
+    "settings": {
+      "enabled": true
+    },
+    "createdAt": "2026-06-04T09:51:11.895Z"
+  },
+  {
+    "type": "silent",
+    "username": "atif",
+    "password": "zohan009",
+    "roomName": "gossip_gals",
+    "owner": "atif",
+    "profile": {
+      "title": "Silent Bot",
+      "status": "connected silently"
+    },
+    "settings": {
+      "enabled": true
+    },
+    "createdAt": "2026-06-07T19:41:43.779Z"
+  }
+]
