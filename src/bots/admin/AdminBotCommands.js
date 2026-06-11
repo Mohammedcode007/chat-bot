@@ -1,5 +1,10 @@
 const { MusicRoomsRepository } = require("../../store/MusicRoomsRepository");
+const { SocketClient } = require("../../core/SocketClient");
 
+const {
+  MUSIC_BOT_USERNAME,
+  MUSIC_BOT_PASSWORD,
+} = require("../../config/env");
 function sendAdminHelp(socket, sender) {
   socket.sendPrivate(
     sender,
@@ -29,7 +34,254 @@ function sendAdminHelp(socket, sender) {
 function normalizeName(value) {
   return String(value || "").trim().toLowerCase();
 }
+function safeCloseTestSocket(testSocket) {
+  try {
+    if (testSocket && typeof testSocket.close === "function") {
+      testSocket.close();
+    }
+  } catch {}
+}
 
+function getLoginFailReason(data) {
+  const msg = String(
+    data?.message ||
+      data?.error ||
+      data?.reason ||
+      data?.type ||
+      "login_failed"
+  ).trim();
+
+  const lower = msg.toLowerCase();
+
+  if (
+    lower.includes("password") ||
+    lower.includes("invalid") ||
+    lower.includes("wrong") ||
+    lower.includes("unauthorized") ||
+    lower.includes("login")
+  ) {
+    return "اسم المستخدم أو كلمة السر غير صحيحة.";
+  }
+
+  return `فشل تسجيل الدخول: ${msg}`;
+}
+
+function getRoomRejectReason(data) {
+  const type = String(data?.type || data?.reason || data?.message || "").trim();
+  const lower = type.toLowerCase();
+
+  if (lower === "room_banned" || lower === "banned") {
+    return "البوت محظور من هذه الغرفة.";
+  }
+
+  if (lower === "room_unauthorized") {
+    return "البوت غير مصرح له بدخول هذه الغرفة.";
+  }
+
+  if (lower === "room_membership_required") {
+    return "هذه الغرفة تتطلب عضوية أو صلاحية دخول.";
+  }
+
+  if (lower === "blocked" || lower === "outcast") {
+    return "البوت مرفوض أو محظور داخل الغرفة.";
+  }
+
+  if (type) {
+    return `تم رفض دخول الغرفة: ${type}`;
+  }
+
+  return "تم رفض دخول الغرفة لسبب غير معروف.";
+}
+
+function isJoinSuccessEvent(data, roomName) {
+  if (!data || data.handler !== "room_event") {
+    return false;
+  }
+
+  const type = String(data.type || "").trim().toLowerCase();
+
+  if (type !== "you_joined") {
+    return false;
+  }
+
+  const eventRoom = String(data.name || data.room || data.roomName || "").trim();
+
+  if (!eventRoom) {
+    return true;
+  }
+
+  return eventRoom.toLowerCase() === String(roomName || "").trim().toLowerCase();
+}
+
+function isRoomRejectEventLocal(data) {
+  if (!data || data.handler !== "room_event") {
+    return false;
+  }
+
+  const type = String(data.type || "").trim().toLowerCase();
+
+  return [
+    "room_unauthorized",
+    "room_membership_required",
+    "room_banned",
+    "banned",
+    "blocked",
+    "outcast",
+  ].includes(type);
+}
+
+function validateBotCanJoinRoom({
+  username,
+  password,
+  roomName,
+  type = "test",
+  timeoutMs = 15000,
+}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let loginOk = false;
+    let joinSent = false;
+
+    const testSocket = new SocketClient({
+      username,
+      password,
+      roomName,
+      type: `validate_${type}`,
+    });
+
+    function finish(result) {
+      if (settled) return;
+
+      settled = true;
+      clearTimeout(timer);
+
+      safeCloseTestSocket(testSocket);
+
+      resolve(result);
+    }
+
+    const timer = setTimeout(() => {
+      if (!loginOk) {
+        finish({
+          ok: false,
+          reason: "انتهت مهلة الاتصال قبل تسجيل الدخول. قد يكون السيرفر لا يستجيب.",
+        });
+        return;
+      }
+
+      if (!joinSent) {
+        finish({
+          ok: false,
+          reason: "تم تسجيل الدخول لكن لم يتم إرسال أمر دخول الغرفة.",
+        });
+        return;
+      }
+
+      finish({
+        ok: false,
+        reason: "انتهت مهلة دخول الغرفة. قد تكون الغرفة غير موجودة أو السيرفر لم يرد.",
+      });
+    }, timeoutMs);
+
+    testSocket.onOpen(() => {
+      console.log("🧪 [BOT_VALIDATE_SOCKET_OPEN]", {
+        username,
+        roomName,
+        type,
+      });
+    });
+
+    testSocket.onMessage((data) => {
+      if (settled) return;
+
+      if (data?.handler === "login_event" && data?.type === "success") {
+        loginOk = true;
+
+        console.log("🧪 [BOT_VALIDATE_LOGIN_OK]", {
+          username,
+          roomName,
+          type,
+        });
+
+        setTimeout(() => {
+          if (settled) return;
+
+          joinSent = true;
+          testSocket.joinRoom(roomName);
+        }, 500);
+
+        return;
+      }
+
+      if (data?.handler === "login_event" && data?.type !== "success") {
+        finish({
+          ok: false,
+          reason: getLoginFailReason(data),
+          data,
+        });
+        return;
+      }
+
+      if (isRoomRejectEventLocal(data)) {
+        finish({
+          ok: false,
+          reason: getRoomRejectReason(data),
+          data,
+        });
+        return;
+      }
+
+      if (isJoinSuccessEvent(data, roomName)) {
+        finish({
+          ok: true,
+          reason: "joined",
+          data,
+        });
+        return;
+      }
+
+      if (
+        data?.handler === "error" ||
+        data?.type === "error" ||
+        data?.error ||
+        data?.message === "unauthorized"
+      ) {
+        finish({
+          ok: false,
+          reason: String(data.error || data.message || data.type || "server_error"),
+          data,
+        });
+      }
+    });
+
+    testSocket.onError((error) => {
+      finish({
+        ok: false,
+        reason: `فشل اتصال WebSocket: ${error.message}`,
+      });
+    });
+
+    testSocket.onClose((code, reason) => {
+      if (settled) return;
+
+      finish({
+        ok: false,
+        reason: `تم إغلاق الاتصال قبل نجاح الدخول. code=${code} reason=${String(
+          reason || ""
+        )}`,
+      });
+    });
+
+    try {
+      testSocket.connect();
+    } catch (err) {
+      finish({
+        ok: false,
+        reason: `فشل بدء الاتصال: ${err.message}`,
+      });
+    }
+  });
+}
 function isControllerOwnerOrMaster(bot, sender) {
   if (!bot) return false;
 
@@ -81,7 +333,7 @@ function parseJoinMusicRoomCommand(text) {
   };
 }
 
-function handleJoinMusicRoom({ sender, text, socket, runtime }) {
+async function handleJoinMusicRoom({ sender, text, socket, runtime }) {
   const parsed = parseJoinMusicRoomCommand(text);
 
   if (!parsed) {
@@ -89,32 +341,78 @@ function handleJoinMusicRoom({ sender, text, socket, runtime }) {
     return;
   }
 
+  const roomName = parsed.roomName;
+
+  if (!MUSIC_BOT_USERNAME || !MUSIC_BOT_PASSWORD) {
+    socket.sendPrivate(
+      sender,
+      "❌ Music bot credentials are missing in .env"
+    );
+    return;
+  }
+
   const musicRoomsRepository = new MusicRoomsRepository();
 
   try {
-    const result = musicRoomsRepository.addRoom(parsed.roomName, sender);
+    const rooms =
+      typeof musicRoomsRepository.getRooms === "function"
+        ? musicRoomsRepository.getRooms()
+        : [];
 
-    if (runtime && typeof runtime.connectMusicBot === "function") {
-      runtime.connectMusicBot(parsed.roomName);
-    }
-
-    if (result.alreadyExists) {
-      socket.sendPrivate(
-        sender,
-        `⚠️ Music bot already in room:\n${parsed.roomName}`
+    const alreadyExists = rooms.some((item) => {
+      const savedRoom = typeof item === "string" ? item : item.roomName;
+      return (
+        String(savedRoom || "").trim().toLowerCase() ===
+        String(roomName || "").trim().toLowerCase()
       );
+    });
+
+    if (alreadyExists) {
+      socket.sendPrivate(sender, `⚠️ Music bot already in room:\n${roomName}`);
       return;
     }
 
     socket.sendPrivate(
       sender,
-      `✅ Music bot joined:\n${parsed.roomName}`
+      `⏳ Testing music bot connection...\nRoom: ${roomName}`
     );
+
+    const testResult = await validateBotCanJoinRoom({
+      username: MUSIC_BOT_USERNAME,
+      password: MUSIC_BOT_PASSWORD,
+      roomName,
+      type: "music",
+      timeoutMs: 15000,
+    });
+
+    if (!testResult.ok) {
+      socket.sendPrivate(
+        sender,
+        [
+          "❌ Music bot was not added.",
+          `Room: ${roomName}`,
+          `Reason: ${testResult.reason}`,
+        ].join("\n")
+      );
+      return;
+    }
+
+    const result = musicRoomsRepository.addRoom(roomName, sender);
+
+    if (runtime && typeof runtime.connectMusicBot === "function") {
+      runtime.connectMusicBot(roomName);
+    }
+
+    if (result.alreadyExists) {
+      socket.sendPrivate(sender, `⚠️ Music bot already in room:\n${roomName}`);
+      return;
+    }
+
+    socket.sendPrivate(sender, `✅ Music bot joined and saved:\n${roomName}`);
   } catch (err) {
     socket.sendPrivate(sender, `❌ ${err.message}`);
   }
 }
-
 /* =====================================================
    Controller Bot
    username@password@room
@@ -255,7 +553,13 @@ function createSilentBot({ username, password, roomName, owner }) {
   };
 }
 
-function handleAddControllerBot({ sender, text, socket, repository, runtime }) {
+async function handleAddControllerBot({
+  sender,
+  text,
+  socket,
+  repository,
+  runtime,
+}) {
   const parsed = parseControllerBotCommand(text);
 
   if (!parsed) {
@@ -265,27 +569,87 @@ function handleAddControllerBot({ sender, text, socket, repository, runtime }) {
 
   const { username, password, roomName } = parsed;
 
-  const controllerBot = createControllerBot({
-    username,
-    password,
-    roomName,
-    owner: sender,
-  });
-
   try {
-    repository.addControllerBot(controllerBot);
-    runtime.connectControllerBot(controllerBot);
+    const exists =
+      typeof repository.getControllerBotByRoom === "function"
+        ? repository.getControllerBotByRoom(roomName)
+        : null;
+
+    if (exists) {
+      socket.sendPrivate(
+        sender,
+        [
+          "⚠️ Controller already exists for this room.",
+          `User: ${exists.username}`,
+          `Room: ${exists.roomName}`,
+        ].join("\n")
+      );
+      return;
+    }
 
     socket.sendPrivate(
       sender,
-      `✅ Controller added\nUser: ${username}\nRoom: ${roomName}`
+      [
+        "⏳ Testing controller bot connection...",
+        `User: ${username}`,
+        `Room: ${roomName}`,
+      ].join("\n")
+    );
+
+    const testResult = await validateBotCanJoinRoom({
+      username,
+      password,
+      roomName,
+      type: "controller",
+      timeoutMs: 15000,
+    });
+
+    if (!testResult.ok) {
+      socket.sendPrivate(
+        sender,
+        [
+          "❌ Controller was not added.",
+          `User: ${username}`,
+          `Room: ${roomName}`,
+          `Reason: ${testResult.reason}`,
+        ].join("\n")
+      );
+      return;
+    }
+
+    const controllerBot = createControllerBot({
+      username,
+      password,
+      roomName,
+      owner: sender,
+    });
+
+    repository.addControllerBot(controllerBot);
+
+    if (runtime && typeof runtime.connectControllerBot === "function") {
+      runtime.connectControllerBot(controllerBot);
+    }
+
+    socket.sendPrivate(
+      sender,
+      [
+        "✅ Controller added and saved.",
+        `User: ${username}`,
+        `Room: ${roomName}`,
+      ].join("\n")
     );
   } catch (err) {
     socket.sendPrivate(sender, `❌ ${err.message}`);
   }
 }
 
-function handleAddSilentBot({ sender, text, socket, repository, runtime }) {
+async function handleAddSilentBot({
+  sender,
+  text,
+  socket,
+  repository,
+  runtime,
+}) {
   const parsed = parseSilentBotCommand(text);
 
   if (!parsed) {
@@ -295,20 +659,74 @@ function handleAddSilentBot({ sender, text, socket, repository, runtime }) {
 
   const { username, password, roomName } = parsed;
 
-  const silentBot = createSilentBot({
-    username,
-    password,
-    roomName,
-    owner: sender,
-  });
-
   try {
-    repository.addSilentBot(silentBot);
-    runtime.connectSilentBot(silentBot);
+    const exists =
+      typeof repository.getSilentBotByRoomAndUsername === "function"
+        ? repository.getSilentBotByRoomAndUsername(roomName, username)
+        : null;
+
+    if (exists) {
+      socket.sendPrivate(
+        sender,
+        [
+          "⚠️ Silent bot already exists.",
+          `User: ${exists.username}`,
+          `Room: ${exists.roomName}`,
+        ].join("\n")
+      );
+      return;
+    }
 
     socket.sendPrivate(
       sender,
-      `✅ Silent added\nUser: ${username}\nRoom: ${roomName}`
+      [
+        "⏳ Testing silent bot connection...",
+        `User: ${username}`,
+        `Room: ${roomName}`,
+      ].join("\n")
+    );
+
+    const testResult = await validateBotCanJoinRoom({
+      username,
+      password,
+      roomName,
+      type: "silent",
+      timeoutMs: 15000,
+    });
+
+    if (!testResult.ok) {
+      socket.sendPrivate(
+        sender,
+        [
+          "❌ Silent bot was not added.",
+          `User: ${username}`,
+          `Room: ${roomName}`,
+          `Reason: ${testResult.reason}`,
+        ].join("\n")
+      );
+      return;
+    }
+
+    const silentBot = createSilentBot({
+      username,
+      password,
+      roomName,
+      owner: sender,
+    });
+
+    repository.addSilentBot(silentBot);
+
+    if (runtime && typeof runtime.connectSilentBot === "function") {
+      runtime.connectSilentBot(silentBot);
+    }
+
+    socket.sendPrivate(
+      sender,
+      [
+        "✅ Silent bot added and saved.",
+        `User: ${username}`,
+        `Room: ${roomName}`,
+      ].join("\n")
     );
   } catch (err) {
     socket.sendPrivate(sender, `❌ ${err.message}`);
