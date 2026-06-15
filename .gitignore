@@ -1,0 +1,3 @@
+
+# ignore temp uploaded mp3 files only
+public/uploads/audio-temp/*.mp3

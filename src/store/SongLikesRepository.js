@@ -277,19 +277,20 @@ const { normalizeUsername } = require("../utils/text");
   عدّل هذه القيم بسهولة من هنا فقط
 */
 
-// كل مستخدم مسموح له يطلب أغنية كل 10 ثواني
-const USER_SONG_COOLDOWN_MS = Number(
-  process.env.USER_SONG_COOLDOWN_MS || 10 * 1000
+const USER_SONG_COOLDOWN_MS = Math.max(
+  0,
+  Number(process.env.USER_SONG_COOLDOWN_MS || 10 * 1000)
 );
 
-// احتفظ بآخر الأغاني فقط حتى يعمل like@id
-const MAX_RECENT_SONGS = Number(process.env.MAX_RECENT_SONGS || 300);
-
-// حذف الأغاني القديمة من ملف اللايكات بعد 24 ساعة
-const RECENT_SONG_TTL_MS = Number(
-  process.env.RECENT_SONG_TTL_MS || 24 * 60 * 60 * 1000
+const MAX_RECENT_SONGS = Math.max(
+  1,
+  Number(process.env.MAX_RECENT_SONGS || 300)
 );
 
+const RECENT_SONG_TTL_MS = Math.max(
+  60 * 1000,
+  Number(process.env.RECENT_SONG_TTL_MS || 24 * 60 * 60 * 1000)
+);
 const songLikesStore = new JsonStore(
   path.join(__dirname, "../data/songLikes.json"),
   {
@@ -335,19 +336,24 @@ function generateUniqueSongId(existingSongs) {
   return String(id).slice(0, 6);
 }
 function ensureDataShape(data) {
-  if (!data || typeof data !== "object") {
+  /*
+    مهم جدًا:
+    لو الملف مكتوب فيه [] لازم نحوله إلى object
+    لأن Array لا يحفظ خصائص users/recentSongs بشكل صحيح في JSON.
+  */
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
     data = {};
   }
 
-  /*
-    دعم قراءة الملف القديم مؤقتًا بدون كسر التشغيل.
-    لو الملف قديم فيه songs/likes، سنحول العدادات داخل الذاكرة.
-  */
-  if (!data.users || typeof data.users !== "object") {
+  if (!data.users || typeof data.users !== "object" || Array.isArray(data.users)) {
     data.users = {};
   }
 
-  if (!data.recentSongs || typeof data.recentSongs !== "object") {
+  if (
+    !data.recentSongs ||
+    typeof data.recentSongs !== "object" ||
+    Array.isArray(data.recentSongs)
+  ) {
     data.recentSongs = {};
   }
 

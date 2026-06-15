@@ -1,1 +1,40 @@
-[]
+[
+  {
+    "type": "controller",
+    "username": "اِ‘لـسُلـٌ‘ـطّــ͢ـآ‘ن◉🥇",
+    "password": "24200051",
+    "roomName": "كوكاكولآ",
+    "owner": "ا◙☬ځُــۥـ☼ـڈ◄أڵـــســمـــٱ۽►ـۉد☼ــۥــۓ☬◙ا",
+    "masters": [
+      "卂ْْْْْ",
+      "حــَ‘ًـآ‘زم🦅",
+      "✿زُهْرَةٌبَيْنَْ.ثَنَايَاابْتِسَامَتِهَايَسْكُنُ.الْقَمَرُ✿"
+    ],
+    "profile": {
+      "title": "Controller Bot",
+      "status": "ready"
+    },
+    "settings": {
+      "commandsEnabled": true
+    },
+    "createdAt": "2026-06-11T18:54:40.774Z"
+  },
+  {
+    "type": "controller",
+    "username": "de7ka_bot",
+    "password": "12345678",
+    "roomName": "ضحكه_مصريه",
+    "owner": "ا◙☬ځُــۥـ☼ـڈ◄أڵـــســمـــٱ۽►ـۉد☼ــۥــۓ☬◙ا",
+    "masters": [
+      "jassmin.alsherief"
+    ],
+    "profile": {
+      "title": "Controller Bot",
+      "status": "ready"
+    },
+    "settings": {
+      "commandsEnabled": true
+    },
+    "createdAt": "2026-06-14T16:13:16.023Z"
+  }
+]
