@@ -2,7 +2,47 @@ const { SongLikesRepository } = require("../../store/SongLikesRepository");
 const { buildMusicReply } = require("./musicReply.service");
 
 const songLikesRepository = new SongLikesRepository();
+const musicCommandCooldowns = new Map();
 
+function getMusicUserCooldownMs() {
+  const value = Number(process.env.MUSIC_USER_COMMAND_COOLDOWN_MS || 30000);
+
+  if (!Number.isFinite(value) || value < 0) {
+    return 30000;
+  }
+
+  return value;
+}
+
+function checkMusicUserCooldown(username) {
+  const userKey = String(username || "unknown").trim().toLowerCase();
+  const cooldownMs = getMusicUserCooldownMs();
+
+  if (!userKey || cooldownMs <= 0) {
+    return {
+      ok: true,
+      waitSeconds: 0,
+    };
+  }
+
+  const now = Date.now();
+  const lastAt = Number(musicCommandCooldowns.get(userKey) || 0);
+  const diff = now - lastAt;
+
+  if (lastAt && diff < cooldownMs) {
+    return {
+      ok: false,
+      waitSeconds: Math.ceil((cooldownMs - diff) / 1000),
+    };
+  }
+
+  musicCommandCooldowns.set(userKey, now);
+
+  return {
+    ok: true,
+    waitSeconds: 0,
+  };
+}
 function getSenderName(sender) {
   if (!sender) return "unknown";
 
@@ -321,7 +361,58 @@ function getControllerRoomFromKey(key) {
 function normalizeRoomName(roomName) {
   return String(roomName || "").trim().toLowerCase();
 }
+function prioritizeCurrentRoomTargets(targets, currentRoomName, currentSocket) {
+  const normalizedCurrentRoom = normalizeRoomName(currentRoomName);
 
+  const result = [];
+  const usedRooms = new Set();
+
+  /*
+    أولًا: الغرفة التي صدر منها الأمر
+  */
+  if (normalizedCurrentRoom) {
+    const currentTarget = targets.find((target) => {
+      return normalizeRoomName(target.roomName) === normalizedCurrentRoom;
+    });
+
+    if (currentTarget) {
+      result.push(currentTarget);
+      usedRooms.add(normalizedCurrentRoom);
+    } else if (
+      currentSocket &&
+      typeof currentSocket.sendRoomMessage === "function"
+    ) {
+      /*
+        احتياطي: لو الغرفة الحالية لم تظهر داخل registry
+      */
+      result.push({
+        type: "current",
+        roomName: currentRoomName || "current-room",
+        socket: currentSocket,
+      });
+
+      usedRooms.add(normalizedCurrentRoom);
+    }
+  }
+
+  /*
+    ثانيًا: باقي الغرف بدون تكرار
+  */
+  for (const target of targets) {
+    const roomKey = normalizeRoomName(target.roomName);
+
+    if (!roomKey) continue;
+
+    if (usedRooms.has(roomKey)) {
+      continue;
+    }
+
+    result.push(target);
+    usedRooms.add(roomKey);
+  }
+
+  return result;
+}
 function isMusicKey(key) {
   return String(key || "").toLowerCase().startsWith("music:");
 }
@@ -623,19 +714,22 @@ async function handleSongGlobal(context) {
   /*
     فحص الانتظار قبل تحميل الأغنية
   */
-  if (typeof songLikesRepository.canCreateSong === "function") {
-    const cooldown = songLikesRepository.canCreateSong(senderName);
+   /*
+    كل مستخدم له أمر أغنية كل مدة محددة من .env
+  */
+  const userCooldown = checkMusicUserCooldown(senderName);
 
-    if (!cooldown.ok && cooldown.reason === "cooldown") {
-      sendRoomTextSafe(socket, `Please wait ${cooldown.waitSeconds}s.`);
-      return;
-    }
+  if (!userCooldown.ok) {
+    sendRoomTextSafe(socket, `Please wait ${userCooldown.waitSeconds}s.`);
+    return;
   }
-
   sendRoomTextSafe(socket, `Loading: ${songName}`);
 
-  const targets = getBroadcastTargets(runtime, context);
-
+  const targets = prioritizeCurrentRoomTargets(
+    getBroadcastTargets(runtime, context),
+    bot.roomName,
+    socket
+  );
   console.log("🎵 [MUSIC_BROADCAST_TARGETS]", {
     count: targets.length,
     targets: targets.map((t) => ({
