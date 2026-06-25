@@ -36,5 +36,21 @@
       "commandsEnabled": true
     },
     "createdAt": "2026-06-14T16:13:16.023Z"
+  },
+  {
+    "type": "controller",
+    "username": "0...bot...0",
+    "password": "12345678",
+    "roomName": "𝑴𝒆𝒓𝒄𝒊𝒍𝒆𝒔𝒔⛧",
+    "owner": "ا◙☬ځُــۥـ☼ـڈ◄أڵـــســمـــٱ۽►ـۉد☼ــۥــۓ☬◙ا",
+    "masters": [],
+    "profile": {
+      "title": "Controller Bot",
+      "status": "ready"
+    },
+    "settings": {
+      "commandsEnabled": true
+    },
+    "createdAt": "2026-06-18T00:43:33.206Z"
   }
 ]

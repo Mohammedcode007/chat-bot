@@ -1,1 +1,30 @@
-[]
+[
+  {
+    "type": "music",
+    "username": "music_dj",
+    "roomName": "سوريا",
+    "reason": "room_unauthorized",
+    "savedAt": "2026-06-17T00:40:46.799Z"
+  },
+  {
+    "type": "music",
+    "username": "music_dj",
+    "roomName": "ديوان✧الملوڪ",
+    "reason": "room_unauthorized",
+    "savedAt": "2026-06-19T07:53:28.851Z"
+  },
+  {
+    "type": "controller",
+    "username": "de7ka_bot",
+    "roomName": "ضحكه_مصريه",
+    "reason": "room_unauthorized",
+    "savedAt": "2026-06-22T03:28:42.349Z"
+  },
+  {
+    "type": "music",
+    "username": "music_dj",
+    "roomName": "سورياالحبيبة",
+    "reason": "room_unauthorized",
+    "savedAt": "2026-06-22T16:47:13.231Z"
+  }
+]
