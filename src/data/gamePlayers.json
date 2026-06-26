@@ -722,18 +722,18 @@
   "kim": {
     "username": "kim",
     "verified": false,
-    "points": 130000,
+    "points": 140500,
     "bombShieldUntil": "2026-06-25T06:06:07.475Z",
     "createdAt": "2026-06-18T16:02:41.885Z",
-    "updatedAt": "2026-06-25T05:06:07.476Z"
+    "updatedAt": "2026-06-26T12:30:35.172Z"
   },
   "ديــ🦋⑅⃝ـــنـــا": {
     "username": "ديــ🦋⑅⃝ـــنـــا",
     "verified": false,
-    "points": 3000,
+    "points": 13000,
     "bombShieldUntil": "2026-06-23T23:57:05.727Z",
     "createdAt": "2026-06-18T16:26:49.919Z",
-    "updatedAt": "2026-06-23T22:57:05.730Z"
+    "updatedAt": "2026-06-26T03:58:11.302Z"
   },
   "nargsia": {
     "username": "nargsia",
@@ -826,10 +826,10 @@
   "نـسـۦۦــۦۦـريـۦـن": {
     "username": "نـسـۦۦــۦۦـريـۦـن",
     "verified": false,
-    "points": 10500,
+    "points": 20500,
     "bombShieldUntil": "",
     "createdAt": "2026-06-24T04:30:52.793Z",
-    "updatedAt": "2026-06-24T18:47:25.588Z"
+    "updatedAt": "2026-06-26T09:16:58.112Z"
   },
   "❛𝘴ꮿ𝗲𝗲𝐭🎀ի𝒆ᤂ֟፝ؖ۬𝘳𝐭❜": {
     "username": "❛𝘴Ꮿ𝗲𝗲𝐭🎀ի𝒆ᤂ֟፝ؖ۬𝘳𝐭❜",
@@ -842,10 +842,10 @@
   "𓂃⃪ֶجميـلهہۦوبريـئهہۦكالملاڪ𐦍❥": {
     "username": "𓂃⃪ֶجميـلهہۦوبريـئهہۦكالملاڪ𐦍❥",
     "verified": false,
-    "points": 5500,
+    "points": 117000,
     "bombShieldUntil": "2026-06-25T06:10:59.876Z",
     "createdAt": "2026-06-24T16:45:18.417Z",
-    "updatedAt": "2026-06-25T07:57:32.353Z"
+    "updatedAt": "2026-06-26T10:55:55.656Z"
   },
   "឵💐": {
     "username": "឵💐",
@@ -862,5 +862,13 @@
     "bombShieldUntil": "",
     "createdAt": "2026-06-25T03:45:41.417Z",
     "updatedAt": "2026-06-25T03:45:41.417Z"
+  },
+  "឵🔥": {
+    "username": "឵🔥",
+    "verified": false,
+    "points": 7000,
+    "bombShieldUntil": "",
+    "createdAt": "2026-06-26T11:45:26.372Z",
+    "updatedAt": "2026-06-26T12:04:08.522Z"
   }
 }
