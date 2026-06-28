@@ -350,7 +350,18 @@ function logControlAction({ bot, sender, action, target }) {
   لأن .SAVE يقرأ من RoomUsersRepository.
 */
 function syncRoomUserRole({ roomName, username, savedRole }) {
+  console.log("🟡 [SYNC_START]", {
+    roomName,
+    username,
+    savedRole,
+  });
+
   if (!roomName || !username || !savedRole) {
+    console.log("❌ [SYNC_STOP_MISSING_DATA]", {
+      roomName,
+      username,
+      savedRole,
+    });
     return;
   }
 
@@ -358,13 +369,31 @@ function syncRoomUserRole({ roomName, username, savedRole }) {
     const cleanUsername = String(username || "").trim();
     const target = normalizeForCheck(cleanUsername);
 
+    console.log("🔎 [SYNC_NORMALIZED]", {
+      cleanUsername,
+      target,
+      normalizedRoomName: normalizeForCheck(roomName),
+    });
+
     const users =
       typeof roomUsersRepository.getRoomUsers === "function"
         ? roomUsersRepository.getRoomUsers(roomName) || []
         : [];
 
+    console.log("📦 [SYNC_BEFORE_USERS]", {
+      roomName,
+      count: users.length,
+      users,
+    });
+
     let nextUsers = users.filter((user) => {
       return normalizeForCheck(user.username) !== target;
+    });
+
+    console.log("📦 [SYNC_AFTER_FILTER]", {
+      roomName,
+      count: nextUsers.length,
+      nextUsers,
     });
 
     /*
@@ -372,16 +401,42 @@ function syncRoomUserRole({ roomName, username, savedRole }) {
       لذلك نحذفه من القائمة المحلية.
     */
     if (savedRole === "removed") {
-      if (typeof roomUsersRepository.replaceRoomUsers === "function") {
-        roomUsersRepository.replaceRoomUsers(roomName, nextUsers);
-      } else if (typeof roomUsersRepository.removeUser === "function") {
-        roomUsersRepository.removeUser(roomName, cleanUsername);
-      }
-
-      console.log("🧩 [ROOM_USER_ROLE_SYNC]", {
+      console.log("🟠 [SYNC_REMOVE_USER]", {
         roomName,
         username: cleanUsername,
-        savedRole: "removed",
+      });
+
+      if (typeof roomUsersRepository.replaceRoomUsers === "function") {
+        const writeResult = roomUsersRepository.replaceRoomUsers(
+          roomName,
+          nextUsers
+        );
+
+        console.log("✅ [SYNC_REMOVE_REPLACE_RESULT]", {
+          writeResult,
+        });
+      } else if (typeof roomUsersRepository.removeUser === "function") {
+        const removeResult = roomUsersRepository.removeUser(
+          roomName,
+          cleanUsername
+        );
+
+        console.log("✅ [SYNC_REMOVE_RESULT]", {
+          removeResult,
+        });
+      } else {
+        console.log("❌ [SYNC_REMOVE_NO_METHOD]");
+      }
+
+      const afterRemove =
+        typeof roomUsersRepository.getRoomUsers === "function"
+          ? roomUsersRepository.getRoomUsers(roomName) || []
+          : [];
+
+      console.log("📦 [SYNC_AFTER_REMOVE_USERS]", {
+        roomName,
+        count: afterRemove.length,
+        users: afterRemove,
       });
 
       return;
@@ -391,32 +446,63 @@ function syncRoomUserRole({ roomName, username, savedRole }) {
       Ban يتم حفظه outcast.
       وملف .SAVE يعتبر outcast ضمن blocked users.
     */
-    nextUsers.push({
+    const nextUser = {
       username: cleanUsername,
       role: savedRole,
       userId: "",
       photoUrl: "",
+      joinedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+    };
+
+    nextUsers.push(nextUser);
+
+    console.log("➕ [SYNC_NEXT_USER_PUSHED]", {
+      roomName,
+      nextUser,
+      nextUsersCount: nextUsers.length,
+      nextUsers,
     });
 
     if (typeof roomUsersRepository.replaceRoomUsers === "function") {
-      roomUsersRepository.replaceRoomUsers(roomName, nextUsers);
+      const writeResult = roomUsersRepository.replaceRoomUsers(
+        roomName,
+        nextUsers
+      );
+
+      console.log("✅ [SYNC_REPLACE_RESULT]", {
+        writeResult,
+      });
     } else if (typeof roomUsersRepository.addUser === "function") {
-      roomUsersRepository.addUser(roomName, {
+      const addResult = roomUsersRepository.addUser(roomName, {
         username: cleanUsername,
         role: savedRole,
         userId: "",
         photoUrl: "",
       });
+
+      console.log("✅ [SYNC_ADD_RESULT]", {
+        addResult,
+      });
+    } else {
+      console.log("❌ [SYNC_NO_SAVE_METHOD]");
     }
 
-    console.log("🧩 [ROOM_USER_ROLE_SYNC]", {
+    const afterUsers =
+      typeof roomUsersRepository.getRoomUsers === "function"
+        ? roomUsersRepository.getRoomUsers(roomName) || []
+        : [];
+
+    console.log("🟢 [SYNC_AFTER_USERS]", {
       roomName,
-      username: cleanUsername,
-      savedRole,
+      count: afterUsers.length,
+      users: afterUsers,
     });
   } catch (err) {
-    console.log("❌ [ROOM_USER_ROLE_SYNC_ERROR]", err.message);
+    console.log("❌ [ROOM_USER_ROLE_SYNC_ERROR]", {
+      message: err.message,
+      stack: err.stack,
+    });
   }
 }
 
@@ -496,33 +582,36 @@ function handleControllerControlCommand(context) {
       return;
     }
 
-    const sent = socket[action.method](username, bot.roomName);
+const result = socket[action.method](username, bot.roomName);
 
-    if (sent) {
-      successCount += 1;
+/*
+  مهم:
+  أغلب دوال socket.sendRoomBan / sendRoomAdmin / sendRoomOwner
+  قد ترسل الأمر بنجاح لكنها ترجع undefined.
+  لذلك نعتبرها ناجحة طالما لم ترجع false صراحة.
+*/
+const sent = result !== false;
 
-      /*
-        الإصلاح الأساسي:
-        بعد نجاح تغيير الرتبة فعليًا، نحدث التخزين المحلي
-        حتى .SAVE يحفظ آخر حالة صحيحة.
-      */
-      syncRoomUserRole({
-        roomName: bot.roomName,
-        username,
-        savedRole: action.savedRole,
-      });
+if (sent) {
+  successCount += 1;
 
-      logControlAction({
-        bot,
-        sender,
-        action: action.logAction,
-        target: username,
-      });
+  syncRoomUserRole({
+    roomName: bot.roomName,
+    username,
+    savedRole: action.savedRole,
+  });
 
-      return;
-    }
+  logControlAction({
+    bot,
+    sender,
+    action: action.logAction,
+    target: username,
+  });
 
-    failedCount += 1;
+  return;
+}
+
+failedCount += 1;
   });
 
   if (usernames.length === 1) {

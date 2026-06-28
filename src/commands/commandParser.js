@@ -957,6 +957,70 @@ if (lowerRaw === ".backup") {
     hasPrefix: false,
   };
 }
+/*
+  Saved room state lists
+
+  l@bo  bot owner
+  l@ms  masters
+  l@ow  room owners
+  l@ad  admins
+  l@mb  members
+  l@bl  blocked users
+  l@st  settings
+  l@all summary
+
+  .next next page for last saved list
+*/
+if (lowerRaw === ".next") {
+  return {
+    raw,
+    command: "saved_state_list_next",
+    args: [],
+    hasPrefix: false,
+  };
+}
+
+if (lowerRaw.startsWith("l@")) {
+  const listType = lowerRaw.slice(2).trim();
+
+  if (!listType) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "saved_state_list",
+    args: [listType],
+    hasPrefix: false,
+  };
+}
+
+/*
+  Partial restore from saved room state
+
+  r@bo  restore bot owner only
+  r@ms  restore masters only
+  r@ow  restore room owners only
+  r@ad  restore admins only
+  r@mb  restore members only
+  r@bl  restore blocked users only
+  r@st  restore settings only
+  r@all restore all
+*/
+if (lowerRaw.startsWith("r@")) {
+  const restoreType = lowerRaw.slice(2).trim();
+
+  if (!restoreType) {
+    return null;
+  }
+
+  return {
+    raw,
+    command: "saved_state_restore_part",
+    args: [restoreType],
+    hasPrefix: false,
+  };
+}
   /*
     باقي الأوامر التي تبدأ بـ !
   */

@@ -86,7 +86,52 @@ function sendHelp4(socket) {
     ].join("\n")
   );
 }
-
+function sendHelp5(socket) {
+  socket.sendRoomMessage(
+    [
+      "💾 Save / Backup Commands",
+      "",
+      "Permissions:",
+      ".rs@username  - allow user to use save/backup",
+      ".rrs@username - remove user from save/backup list",
+      ".rsl          - show allowed save users",
+      "",
+      "Save / Restore:",
+      ".save         - save current room state",
+      ".backup       - restore full saved room state",
+      "",
+      "Show saved data:",
+      "l@all         - saved summary",
+      "l@bo          - saved bot owner",
+      "l@ms          - saved masters",
+      "l@ow          - saved room owners",
+      "l@ad          - saved admins",
+      "l@mb          - saved members",
+      "l@bl          - saved blocked users",
+      "l@st          - saved settings",
+      "",
+      "Pages:",
+      ".next         - next page within 1 minute",
+      "",
+      "Partial restore:",
+      "r@all         - restore all saved data",
+      "r@bo          - restore bot owner only",
+      "r@ms          - restore masters only",
+      "r@ow          - restore room owners only",
+      "r@ad          - restore admins only",
+      "r@mb          - restore members only",
+      "r@bl          - restore blocked users only",
+      "r@st          - restore settings only",
+      "",
+      "Example:",
+      ".save",
+      "l@all",
+      "l@mb",
+      ".next",
+      "r@mb",
+    ].join("\n")
+  );
+}
 function handleWhoami({ bot, sender, socket }) {
   const role = getUserRole(bot, sender);
 
@@ -135,6 +180,7 @@ module.exports = {
   sendHelp2,
   sendHelp3,
   sendHelp4,
+  sendHelp5,
   handleWhoami,
   handleStatus,
   requirePermission,

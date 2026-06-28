@@ -121,6 +121,10 @@ function isRoomStateBackupCommand(command) {
     "room_save_allow_list",
     "room_state_save",
     "room_state_backup",
+
+    "saved_state_list",
+    "saved_state_list_next",
+    "saved_state_restore_part",
   ].includes(command);
 }
 
@@ -599,7 +603,480 @@ function restoreRoles(context, state) {
     },
   };
 }
+const SAVED_LIST_PAGE_SIZE = 10;
+const SAVED_LIST_TTL_MS = 60 * 1000;
 
+const savedListSessions = new Map();
+
+function getSavedListSessionKey(roomName, sender) {
+  return `${normalizeForCheck(roomName)}::${normalizeForCheck(sender)}`;
+}
+
+function getSavedTypeInfo(type) {
+  const key = String(type || "").trim().toLowerCase();
+
+  const map = {
+    bo: {
+      key: "owner",
+      title: "👑 Saved bot owner",
+      empty: "No saved bot owner found.",
+      kind: "names",
+    },
+
+    ms: {
+      key: "masters",
+      title: "🧩 Saved masters",
+      empty: "No saved masters found.",
+      kind: "names",
+    },
+
+    ow: {
+      key: "owners",
+      title: "⭐ Saved room owners",
+      empty: "No saved room owners found.",
+      kind: "names",
+    },
+
+    ad: {
+      key: "admins",
+      title: "🛡️ Saved room admins",
+      empty: "No saved room admins found.",
+      kind: "names",
+    },
+
+    mb: {
+      key: "members",
+      title: "👤 Saved room members",
+      empty: "No saved room members found.",
+      kind: "names",
+    },
+
+    bl: {
+      key: "blockeds",
+      title: "🚫 Saved blocked users",
+      empty: "No saved blocked users found.",
+      kind: "names",
+    },
+
+    st: {
+      key: "settings",
+      title: "⚙️ Saved room settings",
+      empty: "No saved settings found.",
+      kind: "settings",
+    },
+
+    all: {
+      key: "all",
+      title: "📦 Saved room state summary",
+      empty: "No saved room state found.",
+      kind: "summary",
+    },
+  };
+
+  return map[key] || null;
+}
+
+function readSavedStateOrSend(context) {
+  const { bot, socket } = context;
+
+  const data = readRoomBackupFile(bot.roomName);
+
+  if (!data.lastSave) {
+    socket.sendRoomMessage("No saved room state found. Use .SAVE first.");
+    return null;
+  }
+
+  return data.lastSave;
+}
+
+function toListItemsFromState(state, info) {
+  if (!state || !info) {
+    return [];
+  }
+
+  if (info.kind === "summary") {
+    return [
+      `Saved at: ${state.savedAt ? new Date(state.savedAt).toLocaleString() : "unknown"}`,
+      `Room: ${state.roomName || ""}`,
+      `Bot owner: ${uniqueNames(state.owner || []).length}`,
+      `Masters: ${uniqueNames(state.masters || []).length}`,
+      `Room owners: ${uniqueNames(state.owners || []).length}`,
+      `Admins: ${uniqueNames(state.admins || []).length}`,
+      `Members: ${uniqueNames(state.members || []).length}`,
+      `Blocked users: ${uniqueNames(state.blockeds || []).length}`,
+      `Settings keys: ${
+        state.settings && typeof state.settings === "object"
+          ? Object.keys(state.settings).length
+          : 0
+      }`,
+    ];
+  }
+
+  if (info.kind === "settings") {
+    const settings =
+      state.settings && typeof state.settings === "object"
+        ? state.settings
+        : {};
+
+    return Object.keys(settings).map((key) => {
+      const value = settings[key];
+
+      if (value && typeof value === "object") {
+        return `${key}: ${JSON.stringify(value)}`;
+      }
+
+      return `${key}: ${String(value)}`;
+    });
+  }
+
+  return uniqueNames(state[info.key] || []);
+}
+
+function formatSavedListPage({ info, items, page, totalPages }) {
+  const start = page * SAVED_LIST_PAGE_SIZE;
+  const pageItems = items.slice(start, start + SAVED_LIST_PAGE_SIZE);
+
+  const lines = [
+    info.title,
+    `Page ${page + 1}/${totalPages}`,
+    `Total: ${items.length}`,
+    "",
+  ];
+
+  pageItems.forEach((item, index) => {
+    lines.push(`${start + index + 1}. ${item}`);
+  });
+
+  if (page + 1 < totalPages) {
+    lines.push("");
+    lines.push("Send .next within 1 minute for next page.");
+  }
+
+  return lines.join("\n");
+}
+
+function handleSavedStateList(context) {
+  const { bot, sender, socket, parsed } = context;
+
+  if (!canUseSaveBackup(bot.roomName, sender)) {
+    socket.sendRoomMessage("You are not allowed to view saved data in this room.");
+    return true;
+  }
+
+  const type = String(parsed.args[0] || "").trim().toLowerCase();
+  const info = getSavedTypeInfo(type);
+
+  if (!info) {
+    socket.sendRoomMessage(
+      [
+        "Unknown saved list type.",
+        "",
+        "Use:",
+        "l@bo bot owner",
+        "l@ms masters",
+        "l@ow owners",
+        "l@ad admins",
+        "l@mb members",
+        "l@bl blocked",
+        "l@st settings",
+        "l@all summary",
+      ].join("\n")
+    );
+    return true;
+  }
+
+  const state = readSavedStateOrSend(context);
+
+  if (!state) {
+    return true;
+  }
+
+  const items = toListItemsFromState(state, info);
+
+  if (!items.length) {
+    socket.sendRoomMessage(info.empty);
+    return true;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(items.length / SAVED_LIST_PAGE_SIZE));
+
+  const sessionKey = getSavedListSessionKey(bot.roomName, sender);
+
+  if (totalPages > 1) {
+    savedListSessions.set(sessionKey, {
+      type,
+      info,
+      items,
+      page: 0,
+      totalPages,
+      expiresAt: Date.now() + SAVED_LIST_TTL_MS,
+    });
+  } else {
+    savedListSessions.delete(sessionKey);
+  }
+
+  socket.sendRoomMessage(
+    formatSavedListPage({
+      info,
+      items,
+      page: 0,
+      totalPages,
+    })
+  );
+
+  return true;
+}
+
+function handleSavedStateListNext(context) {
+  const { bot, sender, socket } = context;
+
+  const sessionKey = getSavedListSessionKey(bot.roomName, sender);
+  const session = savedListSessions.get(sessionKey);
+
+  if (!session) {
+    socket.sendRoomMessage("No active saved list. Send l@ms or another l@ command first.");
+    return true;
+  }
+
+  if (Date.now() > session.expiresAt) {
+    savedListSessions.delete(sessionKey);
+    socket.sendRoomMessage("Saved list expired. Send the list command again to start from page 1.");
+    return true;
+  }
+
+  const nextPage = session.page + 1;
+
+  if (nextPage >= session.totalPages) {
+    savedListSessions.delete(sessionKey);
+    socket.sendRoomMessage("No more pages. Send the list command again to start from page 1.");
+    return true;
+  }
+
+  session.page = nextPage;
+  session.expiresAt = Date.now() + SAVED_LIST_TTL_MS;
+
+  savedListSessions.set(sessionKey, session);
+
+  socket.sendRoomMessage(
+    formatSavedListPage({
+      info: session.info,
+      items: session.items,
+      page: session.page,
+      totalPages: session.totalPages,
+    })
+  );
+
+  return true;
+}
+
+function restoreBotOwnerOnly(context, state) {
+  const { bot, repository } = context;
+
+  const freshBot = getFreshBotFromRepository(repository, bot);
+
+  const nextBot = {
+    ...freshBot,
+    owner: state.owner && state.owner[0] ? state.owner[0] : freshBot.owner,
+  };
+
+  bot.owner = nextBot.owner;
+
+  return saveBotToRepository(repository, bot, nextBot);
+}
+
+function restoreMastersOnly(context, state) {
+  const { bot, repository } = context;
+
+  const freshBot = getFreshBotFromRepository(repository, bot);
+
+  const nextBot = {
+    ...freshBot,
+    masters: uniqueNames(state.masters || []),
+  };
+
+  bot.masters = nextBot.masters;
+
+  return saveBotToRepository(repository, bot, nextBot);
+}
+
+function restoreOwnersOnly(context, state) {
+  const { socket, bot } = context;
+  const owners = uniqueNames(state.owners || []);
+
+  let done = 0;
+
+  owners.forEach((username) => {
+    if (setOwner(socket, username, bot.roomName)) {
+      done += 1;
+    }
+  });
+
+  return {
+    done,
+    expected: owners.length,
+  };
+}
+
+function restoreAdminsOnly(context, state) {
+  const { socket, bot } = context;
+  const admins = uniqueNames(state.admins || []);
+
+  let done = 0;
+
+  admins.forEach((username) => {
+    if (setAdmin(socket, username, bot.roomName)) {
+      done += 1;
+    }
+  });
+
+  return {
+    done,
+    expected: admins.length,
+  };
+}
+
+function restoreMembersOnly(context, state) {
+  const { socket, bot } = context;
+  const members = uniqueNames(state.members || []);
+
+  let done = 0;
+
+  members.forEach((username) => {
+    if (setMember(socket, username, bot.roomName)) {
+      done += 1;
+    }
+  });
+
+  return {
+    done,
+    expected: members.length,
+  };
+}
+
+function restoreBlockedOnly(context, state) {
+  const { socket, bot } = context;
+  const blockeds = uniqueNames(state.blockeds || []);
+
+  let done = 0;
+
+  blockeds.forEach((username) => {
+    if (banUser(socket, username, bot.roomName)) {
+      done += 1;
+    }
+  });
+
+  return {
+    done,
+    expected: blockeds.length,
+  };
+}
+
+function handleSavedStateRestorePart(context) {
+  const { bot, sender, socket, parsed } = context;
+
+  if (!canUseSaveBackup(bot.roomName, sender)) {
+    socket.sendRoomMessage("You are not allowed to restore saved data in this room.");
+    return true;
+  }
+
+  const type = String(parsed.args[0] || "").trim().toLowerCase();
+
+  const state = readSavedStateOrSend(context);
+
+  if (!state) {
+    return true;
+  }
+
+  if (type === "all") {
+    return handleBackup(context);
+  }
+
+  if (type === "bo") {
+    const ok = restoreBotOwnerOnly(context, state);
+
+    socket.sendRoomMessage(
+      `✅ Bot owner restored: ${state.owner && state.owner[0] ? state.owner[0] : "none"} ${ok ? "ok" : "check"}`
+    );
+
+    return true;
+  }
+
+  if (type === "ms") {
+    const ok = restoreMastersOnly(context, state);
+
+    socket.sendRoomMessage(
+      `✅ Masters restored: ${uniqueNames(state.masters || []).length} ${ok ? "ok" : "check"}`
+    );
+
+    return true;
+  }
+
+  if (type === "ow") {
+    const result = restoreOwnersOnly(context, state);
+
+    socket.sendRoomMessage(
+      `✅ Owners restored: ${result.done}/${result.expected}`
+    );
+
+    return true;
+  }
+
+  if (type === "ad") {
+    const result = restoreAdminsOnly(context, state);
+
+    socket.sendRoomMessage(
+      `✅ Admins restored: ${result.done}/${result.expected}`
+    );
+
+    return true;
+  }
+
+  if (type === "mb") {
+    const result = restoreMembersOnly(context, state);
+
+    socket.sendRoomMessage(
+      `✅ Members restored: ${result.done}/${result.expected}`
+    );
+
+    return true;
+  }
+
+  if (type === "bl") {
+    const result = restoreBlockedOnly(context, state);
+
+    socket.sendRoomMessage(
+      `✅ Blocked users restored: ${result.done}/${result.expected}`
+    );
+
+    return true;
+  }
+
+  if (type === "st") {
+    const ok = saveRoomSettingsSafe(bot.roomName, state.settings || {});
+
+    socket.sendRoomMessage(`✅ Settings restored: ${ok ? "ok" : "check"}`);
+
+    return true;
+  }
+
+  socket.sendRoomMessage(
+    [
+      "Unknown restore type.",
+      "",
+      "Use:",
+      "r@bo bot owner",
+      "r@ms masters",
+      "r@ow owners",
+      "r@ad admins",
+      "r@mb members",
+      "r@bl blocked",
+      "r@st settings",
+      "r@all all",
+    ].join("\n")
+  );
+
+  return true;
+}
 function restoreMasters(context, state) {
   const { bot, repository } = context;
 
@@ -783,6 +1260,18 @@ function handleRoomStateBackupCommandRouter(context) {
 
   if (parsed.command === "room_state_backup") {
     return handleBackup(context);
+  }
+
+  if (parsed.command === "saved_state_list") {
+    return handleSavedStateList(context);
+  }
+
+  if (parsed.command === "saved_state_list_next") {
+    return handleSavedStateListNext(context);
+  }
+
+  if (parsed.command === "saved_state_restore_part") {
+    return handleSavedStateRestorePart(context);
   }
 
   return false;

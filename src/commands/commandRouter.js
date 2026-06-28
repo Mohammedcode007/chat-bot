@@ -7,6 +7,7 @@ const {
   sendHelp2,
   sendHelp3,
   sendHelp4,
+  sendHelp5,
   handleWhoami,
   handleStatus,
   requirePermission,
@@ -238,17 +239,18 @@ function handleCommand(context) {
     تحتاج owner/master
     =====================================================
   */
-  if (["help", "help1", "help2", "help3", "help4"].includes(command)) {
-    const allowed = requirePermission(context, { silent: true });
+ if (["help", "help1", "help2", "help3", "help4", "help5"].includes(command)) {
+  const allowed = requirePermission(context, { silent: true });
 
-    if (!allowed) return;
+  if (!allowed) return;
 
-    if (command === "help") return sendHelp(socket);
-    if (command === "help1") return sendHelp1(socket);
-    if (command === "help2") return sendHelp2(socket);
-    if (command === "help3") return sendHelp3(socket);
-    if (command === "help4") return sendHelp4(socket);
-  }
+  if (command === "help") return sendHelp(socket);
+  if (command === "help1") return sendHelp1(socket);
+  if (command === "help2") return sendHelp2(socket);
+  if (command === "help3") return sendHelp3(socket);
+  if (command === "help4") return sendHelp4(socket);
+  if (command === "help5") return sendHelp5(socket);
+}
 
   /*
     =====================================================
